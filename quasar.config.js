@@ -226,7 +226,10 @@ export default defineConfig((/* ctx */) => {
           {
             provider: 'github',
             owner: 'paulop',
-            repo: 'xml-exporter-softbr'
+            repo: 'xml-exporter-softbr',
+            // electron-builder cria a release como rascunho por padrão;
+            // "release" publica direto, senão o electron-updater não a enxerga.
+            releaseType: 'release'
           }
         ]
       }
