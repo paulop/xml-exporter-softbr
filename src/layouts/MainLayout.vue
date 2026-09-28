@@ -46,6 +46,16 @@
                 <q-item-section avatar><q-icon name="folder_zip" /></q-item-section>
                 <q-item-section>Exportação</q-item-section>
               </q-item>
+
+              <q-separator />
+
+              <q-item clickable :disable="checkingUpdate" @click="checkForUpdates">
+                <q-item-section avatar>
+                  <q-spinner v-if="checkingUpdate" color="primary" size="24px" />
+                  <q-icon v-else name="system_update" />
+                </q-item-section>
+                <q-item-section>Verificar atualizações</q-item-section>
+              </q-item>
             </q-list>
           </q-menu>
         </q-btn>
@@ -65,9 +75,24 @@ import { useQuasar } from 'quasar'
 const $q = useQuasar()
 const updateReady = ref(false)
 const appVersion = ref('')
+const checkingUpdate = ref(false)
 
 function installUpdate () {
   window.api.app.installUpdate()
+}
+
+async function checkForUpdates () {
+  checkingUpdate.value = true
+  try {
+    const result = await window.api.app.checkForUpdates()
+    if (!result.ok) {
+      $q.notify({ type: 'info', message: result.message })
+    } else {
+      $q.notify({ type: 'positive', message: 'Verificação concluída.' })
+    }
+  } finally {
+    checkingUpdate.value = false
+  }
 }
 
 let unsubscribeAvailable
