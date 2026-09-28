@@ -4,6 +4,12 @@
   "description": "Quasar Electron Folder",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.9",
+    "mssql": "^12.7.2"
+  },
   "devDependencies": {
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3"
