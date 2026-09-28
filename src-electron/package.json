@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "electron": "^44.4.5"
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
   }
 }
