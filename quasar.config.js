@@ -215,6 +215,13 @@ export default defineConfig((/* ctx */) => {
 
         appId: 'br.com.softbr.xmlexporter',
         productName: 'Gerador de Arquivos XML - SoftBR',
+        // electron-builder's automatic "which node_modules are actually
+        // used" detection is flaky across environments (worked locally,
+        // silently produced an asar with NO node_modules at all on CI).
+        // Including everything from UnPackaged bypasses that detection;
+        // UnPackaged/node_modules is already production-only since it was
+        // installed with `npm install --production`.
+        files: ['**/*'],
         win: {
           target: 'nsis'
         },
