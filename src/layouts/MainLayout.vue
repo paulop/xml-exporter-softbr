@@ -12,10 +12,17 @@
         />
 
         <q-toolbar-title>
-          Quasar App
+          XML Exporter SoftBR
         </q-toolbar-title>
 
-        <div>Quasar v{{ $q.version }}</div>
+        <q-btn
+          v-if="updateReady"
+          color="positive"
+          icon="system_update"
+          label="Reiniciar e atualizar"
+          dense
+          @click="installUpdate"
+        />
       </q-toolbar>
     </q-header>
 
@@ -25,17 +32,29 @@
       bordered
     >
       <q-list>
-        <q-item-label
-          header
-        >
-          Essential Links
-        </q-item-label>
+        <q-item-label header>Navegação</q-item-label>
 
-        <EssentialLink
-          v-for="link in linksList"
-          :key="link.label"
-          v-bind="link"
-        />
+        <q-item clickable to="/" exact>
+          <q-item-section avatar><q-icon name="receipt_long" /></q-item-section>
+          <q-item-section>Notas fiscais</q-item-section>
+        </q-item>
+
+        <q-item-label header>Configurações</q-item-label>
+
+        <q-item clickable to="/settings/connections">
+          <q-item-section avatar><q-icon name="dns" /></q-item-section>
+          <q-item-section>Conexões</q-item-section>
+        </q-item>
+
+        <q-item clickable to="/settings/sql">
+          <q-item-section avatar><q-icon name="code" /></q-item-section>
+          <q-item-section>Consulta SQL</q-item-section>
+        </q-item>
+
+        <q-item clickable to="/settings/export">
+          <q-item-section avatar><q-icon name="folder_zip" /></q-item-section>
+          <q-item-section>Exportação</q-item-section>
+        </q-item>
       </q-list>
     </q-drawer>
 
@@ -46,57 +65,36 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import EssentialLink from '@/components/EssentialLink.vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useQuasar } from 'quasar'
 
-const linksList = [
-  {
-    label: 'Docs',
-    caption: 'quasar.dev',
-    icon: 'school',
-    link: 'https://quasar.dev'
-  },
-  {
-    label: 'GitHub',
-    caption: 'github.com/quasarframework',
-    icon: 'code',
-    link: 'https://github.com/quasarframework'
-  },
-  {
-    label: 'Discord Chat Channel',
-    caption: 'chat.quasar.dev',
-    icon: 'chat',
-    link: 'https://chat.quasar.dev'
-  },
-  {
-    label: 'Forum',
-    caption: 'forum.quasar.dev',
-    icon: 'record_voice_over',
-    link: 'https://forum.quasar.dev'
-  },
-  {
-    label: 'Twitter',
-    caption: '@quasarframework',
-    icon: 'rss_feed',
-    link: 'https://twitter.quasar.dev'
-  },
-  {
-    label: 'Facebook',
-    caption: '@QuasarFramework',
-    icon: 'public',
-    link: 'https://facebook.quasar.dev'
-  },
-  {
-    label: 'Quasar Awesome',
-    caption: 'Community Quasar projects',
-    icon: 'favorite',
-    link: 'https://awesome.quasar.dev'
-  }
-]
-
+const $q = useQuasar()
 const leftDrawerOpen = ref(false)
+const updateReady = ref(false)
 
 function toggleLeftDrawer () {
   leftDrawerOpen.value = !leftDrawerOpen.value
 }
+
+function installUpdate () {
+  window.api.app.installUpdate()
+}
+
+let unsubscribeAvailable
+let unsubscribeDownloaded
+
+onMounted(() => {
+  unsubscribeAvailable = window.api.app.onUpdateAvailable(() => {
+    window.api.app.downloadUpdate()
+    $q.notify({ type: 'info', message: 'Nova versão disponível, baixando em segundo plano...' })
+  })
+  unsubscribeDownloaded = window.api.app.onUpdateDownloaded(() => {
+    updateReady.value = true
+  })
+})
+
+onUnmounted(() => {
+  unsubscribeAvailable?.()
+  unsubscribeDownloaded?.()
+})
 </script>

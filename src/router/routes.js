@@ -4,7 +4,9 @@ const routes = [
     component: () => import('@/layouts/MainLayout.vue'),
     children: [
       { path: '', component: () => import('@/pages/IndexPage.vue') },
-      { path: 'second', component: () => import('@/pages/SecondPage.vue') }
+      { path: 'settings/connections', component: () => import('@/pages/settings/ConnectionsPage.vue') },
+      { path: 'settings/sql', component: () => import('@/pages/settings/SqlEditorPage.vue') },
+      { path: 'settings/export', component: () => import('@/pages/settings/ExportSettingsPage.vue') }
     ],
   },
 

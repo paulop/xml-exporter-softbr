@@ -1,19 +1,25 @@
 {
   "name": "xml-exporter-softbr",
   "version": "0.0.1",
-  "description": "A Quasar Project",
-  "productName": "Quasar App",
+  "description": "Exportador de XML de notas fiscais para contabilidade",
+  "productName": "XML Exporter SoftBR",
   "author": "Paulo Alexandre <paulo.alexandre88@gmail.com>",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "quasar dev",
-    "build": "quasar build",
+    "dev": "quasar dev -m electron",
+    "dev:web": "quasar dev",
+    "build": "quasar build -m electron",
+    "build:publish": "quasar build -m electron -- --publish=always",
     "postinstall": "quasar prepare --silent"
   },
   "dependencies": {
-    "pinia": "^4.0.2",
     "@quasar/extras": "^2.1.0",
+    "archiver": "^8.0.0",
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.9",
+    "mssql": "^12.7.2",
+    "pinia": "^4.0.2",
     "quasar": "^2.33.1",
     "vue": "^3.5.22",
     "vue-router": "^5.0.6"
@@ -21,6 +27,7 @@
   "devDependencies": {
     "@quasar/app-vite": "^3.10.0",
     "autoprefixer": "^10.4.27",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.5.8"
   },
   "keywords": [
