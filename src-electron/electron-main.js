@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import {
@@ -10,15 +10,25 @@ import { registerIpcHandlers } from './ipc/index.js'
 // needed in case process is undefined under Linux
 const platform = process.platform || os.platform()
 
+// Nome técnico fixo do app, usado só para definir a pasta de userData
+// (%APPDATA%/xml-exporter-softbr). Precisa ficar estável independente do
+// productName/título de exibição, senão trocar o título muda a pasta onde
+// as conexões salvas ficam e "perde" os dados já salvos.
+app.setName('xml-exporter-softbr')
+
 async function createWindow () {
   /**
    * Initial window options
    */
   const mainWindow = new BrowserWindow({
+    title: 'Gerador de Arquivos XML - SoftBR',
     icon: resolveElectronAssetsPath('icons/icon.png'), // Windows and Linux
-    width: 1000,
-    height: 600,
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     useContentSize: true,
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       // https://v2.quasar.dev/quasar-cli-vite/developing-electron-apps/electron-preload-script
@@ -46,6 +56,7 @@ async function createWindow () {
 }
 
 void app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null)
   registerQuasarRuntime()
   const mainWindow = await createWindow()
   registerIpcHandlers(mainWindow)

@@ -86,7 +86,7 @@ export default defineConfig((/* ctx */) => {
       // directives: [],
 
       // Quasar plugins
-      plugins: []
+      plugins: ['Notify', 'Dialog']
     },
 
     // animations: 'all', // --- includes all animations
@@ -214,7 +214,7 @@ export default defineConfig((/* ctx */) => {
         // https://www.electron.build/configuration
 
         appId: 'br.com.softbr.xmlexporter',
-        productName: 'XML Exporter SoftBR',
+        productName: 'Gerador de Arquivos XML - SoftBR',
         win: {
           target: 'nsis'
         },
@@ -222,11 +222,10 @@ export default defineConfig((/* ctx */) => {
           oneClick: false,
           allowToChangeInstallationDirectory: true
         },
-        // TODO: replace with the real GitHub org/user and repo name before the first release build
         publish: [
           {
             provider: 'github',
-            owner: 'REPLACE_WITH_GITHUB_OWNER',
+            owner: 'paulop',
             repo: 'xml-exporter-softbr'
           }
         ]

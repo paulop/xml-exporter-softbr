@@ -1,7 +1,10 @@
 <template>
   <q-page class="q-pa-md">
     <div class="row items-center justify-between q-mb-md">
-      <div class="text-h6">Conexões</div>
+      <div class="row items-center">
+        <q-btn flat dense round icon="arrow_back" to="/" aria-label="Voltar" />
+        <div class="text-h6 q-ml-sm">Conexões</div>
+      </div>
       <q-btn color="primary" icon="add" label="Nova conexão" @click="openNew" />
     </div>
 

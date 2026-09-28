@@ -52,13 +52,18 @@
     </div>
 
     <q-table
-      class="q-mt-md"
+      class="q-mt-md notes-table"
       :rows="queryStore.rows"
       :columns="columns"
       row-key="chave"
       selection="multiple"
       v-model:selected="queryStore.selected"
       :loading="queryStore.querying"
+      virtual-scroll
+      :virtual-scroll-item-size="48"
+      :rows-per-page-options="[0]"
+      :pagination="{ rowsPerPage: 0 }"
+      hide-bottom
       flat
       bordered
     >
@@ -88,7 +93,20 @@
       </template>
     </q-table>
 
-    <div class="row justify-end q-mt-md">
+    <div class="row items-center justify-between q-mt-md">
+      <div class="row q-col-gutter-sm">
+        <div class="col-auto">
+          <q-chip color="primary" outline icon="check_box">
+            {{ selectedCount }} selecionada(s)
+          </q-chip>
+        </div>
+        <div class="col-auto">
+          <q-chip color="secondary" outline icon="payments">
+            {{ formatCurrency(selectedTotal) }}
+          </q-chip>
+        </div>
+      </div>
+
       <q-btn
         color="primary"
         icon="folder_zip"
@@ -97,6 +115,18 @@
         :disable="queryStore.selected.length === 0"
         @click="downloadZip"
       />
+    </div>
+
+    <div class="row items-center justify-end q-mt-xs export-status">
+      <template v-if="downloadingZip">
+        <q-spinner-dots color="primary" size="20px" class="q-mr-xs" />
+        <span class="text-caption">Salvando arquivo...</span>
+      </template>
+      <template v-else-if="exportMessage">
+        <div :class="exportOk ? 'text-positive' : 'text-negative'" class="text-caption export-message">
+          {{ exportMessage }}
+        </div>
+      </template>
     </div>
   </q-page>
 </template>
@@ -114,9 +144,16 @@ const queryStore = useQueryStore()
 
 const activeConnectionId = ref(null)
 const downloadingZip = ref(false)
+const exportMessage = ref('')
+const exportOk = ref(true)
 
 const connectionOptions = computed(() =>
   connectionsStore.connections.map((c) => ({ label: c.name, value: c.id }))
+)
+
+const selectedCount = computed(() => queryStore.selected.length)
+const selectedTotal = computed(() =>
+  queryStore.selected.reduce((sum, row) => sum + (Number(row.valor) || 0), 0)
 )
 
 const columns = [
@@ -148,28 +185,30 @@ async function runQuery () {
 }
 
 async function downloadOne (row) {
-  const result = await window.api.export.downloadOne(toPlain(row))
-  notifyResult(result)
+  try {
+    const result = await window.api.export.downloadOne(toPlain(row))
+    exportOk.value = result.ok
+    exportMessage.value = result.ok ? `Arquivo salvo em ${result.path}` : result.message
+  } catch (err) {
+    exportOk.value = false
+    exportMessage.value = err.message ?? String(err)
+  }
 }
 
 async function downloadZip () {
   downloadingZip.value = true
+  exportMessage.value = ''
   try {
     const result = await window.api.export.downloadZip(toPlain(queryStore.selected))
-    notifyResult(result, (r) => `${r.fileCount} XML(s) exportado(s) em ${r.path}`)
+    exportOk.value = result.ok
+    exportMessage.value = result.ok
+      ? `Arquivo salvo em ${result.path} (${result.fileCount} XML(s))`
+      : result.message
+  } catch (err) {
+    exportOk.value = false
+    exportMessage.value = err.message ?? String(err)
   } finally {
     downloadingZip.value = false
-  }
-}
-
-function notifyResult (result, successMessage) {
-  if (result.ok) {
-    $q.notify({
-      type: 'positive',
-      message: successMessage ? successMessage(result) : `Arquivo salvo em ${result.path}`
-    })
-  } else {
-    $q.notify({ type: 'warning', message: result.message })
   }
 }
 
@@ -178,3 +217,24 @@ onMounted(async () => {
   activeConnectionId.value = connectionsStore.activeConnectionId
 })
 </script>
+
+<style scoped>
+.notes-table {
+  height: 50vh;
+}
+
+.notes-table :deep(.q-table__middle) {
+  height: 100%;
+}
+
+.export-status {
+  min-height: 24px;
+}
+
+.export-message {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+</style>
+

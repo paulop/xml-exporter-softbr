@@ -1,6 +1,9 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="text-h6 q-mb-md">Destino de exportação</div>
+    <div class="row items-center q-mb-md">
+      <q-btn flat dense round icon="arrow_back" to="/" aria-label="Voltar" />
+      <div class="text-h6 q-ml-sm">Destino de exportação</div>
+    </div>
 
     <q-input
       :model-value="settingsStore.destinationFolder || 'Nenhuma pasta selecionada'"
