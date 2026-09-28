@@ -1,0 +1,38 @@
+{
+  "name": "xml-exporter-softbr",
+  "version": "0.0.1",
+  "description": "A Quasar Project",
+  "productName": "Quasar App",
+  "author": "Paulo Alexandre <paulo.alexandre88@gmail.com>",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "quasar dev",
+    "build": "quasar build",
+    "postinstall": "quasar prepare --silent"
+  },
+  "dependencies": {
+    "pinia": "^4.0.2",
+    "@quasar/extras": "^2.1.0",
+    "quasar": "^2.33.1",
+    "vue": "^3.5.22",
+    "vue-router": "^5.0.6"
+  },
+  "devDependencies": {
+    "@quasar/app-vite": "^3.10.0",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8"
+  },
+  "keywords": [
+    "quasar",
+    "quasar-app",
+    "quasar-cli",
+    "quasar-app-vite",
+    "vite",
+    "vue",
+    "vuejs"
+  ],
+  "engines": {
+    "node": ">= 26 || ^24 || ^22.12"
+  }
+}
