@@ -10,7 +10,6 @@
     "dev": "quasar dev -m electron",
     "dev:web": "quasar dev",
     "build": "quasar build -m electron",
-    "build:publish": "quasar build -m electron -- --publish=always",
     "postinstall": "quasar prepare --silent"
   },
   "dependencies": {

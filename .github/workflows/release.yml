@@ -20,6 +20,12 @@ jobs:
 
       - run: npm ci
 
-      - run: npx quasar build -m electron -- --publish=always
+      # No --publish flag here on purpose: passing it makes Quasar overwrite
+      # quasar.config.js's electron.builder.publish (which sets releaseType:
+      # 'release') with a bare string, which then races electron-builder's
+      # own implicit tag-triggered publish and fails with a 422 on the
+      # GitHub release already existing. electron-builder auto-publishes on
+      # its own once it detects it's building from a tag with GH_TOKEN set.
+      - run: npx quasar build -m electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

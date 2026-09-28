@@ -22,15 +22,13 @@ Isso abre a janela do app com hot-reload. **Precisa ser rodado num terminal norm
 npx quasar build -m electron
 ```
 
-## Build + publicar release no GitHub (auto-update)
+## Publicar uma nova versão (auto-update)
 
-Exige a variável de ambiente `GH_TOKEN` (um Personal Access Token do GitHub com escopo `repo`) e que `owner`/`repo` estejam corretos em `quasar.config.js` (`electron.builder.publish`):
+1. Suba a `version` em `package.json` (ex: `0.1.2`).
+2. `git tag vX.Y.Z && git push origin main --tags` (ou só a tag nova).
+3. O workflow em `.github/workflows/release.yml` builda no Windows e publica a release automaticamente.
 
-```bash
-GH_TOKEN=xxxx npx quasar build -m electron -- --publish=always
-```
-
-Também há um workflow em `.github/workflows/release.yml` que faz isso automaticamente ao dar push numa tag `v*`.
+Para publicar manualmente (sem CI), rode `GH_TOKEN=xxxx npx quasar build -m electron` numa branch/commit com a tag correspondente já criada — **não passe `--publish=always` na linha de comando**: isso faz o Quasar sobrescrever a config de publish do `quasar.config.js` (que define `releaseType: 'release'`) e colide com a publicação implícita que o próprio `electron-builder` já dispara ao detectar uma tag com `GH_TOKEN` presente, causando erro 422 de release duplicada.
 
 ## Configuração inicial
 
@@ -39,8 +37,7 @@ Também há um workflow em `.github/workflows/release.yml` que faz isso automati
 3. Em **Configurações → Exportação**, escolha a pasta onde os .zip/XML serão salvos.
 4. Na tela principal, escolha o período (ou use "Mês atual"/"Mês anterior"), clique em **Consultar** e depois em **Baixar ZIP**.
 
-## Pendências antes do primeiro release público
+## Pendências conhecidas
 
-- Substituir `REPLACE_WITH_GITHUB_OWNER` em `quasar.config.js` pelo owner/organização real do repositório no GitHub.
 - Validar o SQL padrão contra uma conexão real (nomes de tabela/coluna já foram confirmados para o schema `nfce_notaeletronica` / `nfce_notaeletronica_content`, mas vale testar contra o banco de produção).
 - Decidir sobre certificado de assinatura de código (Authenticode) para evitar avisos do SmartScreen nas atualizações automáticas.
