@@ -20,11 +20,24 @@ jobs:
 
       - run: npm ci
 
+      # electron-builder's GitHub publish step fires its "create release"
+      # call twice internally when it detects a tag build, and the second
+      # call 422s on "already exists" — which aborts the whole publish task
+      # (including any in-flight asset uploads), leaving a broken release
+      # with only the small blockmap uploaded. Pre-creating the release
+      # means both internal calls find it already exists and just upload
+      # assets to it instead of racing to create it.
+      - name: Ensure GitHub release exists
+        shell: bash
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes ""
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # No --publish flag here on purpose: passing it makes Quasar overwrite
       # quasar.config.js's electron.builder.publish (which sets releaseType:
-      # 'release') with a bare string, which then races electron-builder's
-      # own implicit tag-triggered publish and fails with a 422 on the
-      # GitHub release already existing. electron-builder auto-publishes on
+      # 'release') with a bare string. electron-builder auto-publishes on
       # its own once it detects it's building from a tag with GH_TOKEN set.
       - run: npx quasar build -m electron
         env:
