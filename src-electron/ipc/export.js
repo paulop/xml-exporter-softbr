@@ -1,4 +1,4 @@
-import { dialog } from 'electron'
+import { dialog, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
@@ -77,4 +77,34 @@ export async function downloadZip (items) {
   })
 
   return { ok: true, path: zipPath, fileCount: validItems.length }
+}
+
+export async function downloadReceiptPdf ({ html, fileName }) {
+  const result = await dialog.showSaveDialog({
+    defaultPath: sanitizeFileName(fileName) || 'cupom.pdf',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  })
+  if (result.canceled || !result.filePath) {
+    return { ok: false, message: 'Operação cancelada.' }
+  }
+
+  // O backend de impressão do Electron/Chromium ignora "@page { size: 80mm auto }"
+  // (altura automática) e cai para o tamanho Letter padrão, mesmo com
+  // preferCSSPageSize. Por isso medimos a altura real do conteúdo (já
+  // renderizado com 80mm de largura fixa via CSS) e informamos um pageSize
+  // explícito, replicando o comportamento de uma impressora térmica.
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+  try {
+    await win.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`)
+    const heightPx = await win.webContents.executeJavaScript('document.documentElement.scrollHeight')
+    const pdfBuffer = await win.webContents.printToPDF({
+      printBackground: true,
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      pageSize: { width: 80 / 25.4, height: Math.max(heightPx + 4, 40) / 96 }
+    })
+    await fs.writeFile(result.filePath, pdfBuffer)
+    return { ok: true, path: result.filePath }
+  } finally {
+    win.destroy()
+  }
 }

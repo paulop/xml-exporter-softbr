@@ -66,7 +66,12 @@
       hide-bottom
       flat
       bordered
+      dense
     >
+      <template #body-cell-dataEmissao="props">
+        <q-td :props="props">{{ formatDate(props.value) }}</q-td>
+      </template>
+
       <template #body-cell-valor="props">
         <q-td :props="props">{{ formatCurrency(props.value) }}</q-td>
       </template>
@@ -85,6 +90,14 @@
             flat
             dense
             round
+            icon="visibility"
+            :disable="!props.row.xmlContent"
+            @click="openDetail(props.row)"
+          />
+          <q-btn
+            flat
+            dense
+            round
             icon="download"
             :disable="!props.row.xmlContent"
             @click="downloadOne(props.row)"
@@ -92,6 +105,8 @@
         </q-td>
       </template>
     </q-table>
+
+    <NotaDetailDialog v-model="detailOpen" :row="detailRow" />
 
     <div class="row items-center justify-between q-mt-md">
       <div class="row q-col-gutter-sm">
@@ -137,6 +152,7 @@ import { useQuasar } from 'quasar'
 import { useConnectionsStore } from '@/stores/connections-store'
 import { useQueryStore } from '@/stores/query-store'
 import { toPlain } from '@/utils/ipc'
+import NotaDetailDialog from '@/components/NotaDetailDialog.vue'
 
 const $q = useQuasar()
 const connectionsStore = useConnectionsStore()
@@ -146,6 +162,8 @@ const activeConnectionId = ref(null)
 const downloadingZip = ref(false)
 const exportMessage = ref('')
 const exportOk = ref(true)
+const detailOpen = ref(false)
+const detailRow = ref(null)
 
 const connectionOptions = computed(() =>
   connectionsStore.connections.map((c) => ({ label: c.name, value: c.id }))
@@ -172,6 +190,20 @@ function formatCurrency (value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0)
 }
 
+function formatDate (value) {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(date)
+}
+
 async function onConnectionChange (id) {
   await connectionsStore.setActive(id)
 }
@@ -182,6 +214,11 @@ async function runQuery () {
   } catch (err) {
     $q.notify({ type: 'negative', message: err.message ?? String(err) })
   }
+}
+
+function openDetail (row) {
+  detailRow.value = row
+  detailOpen.value = true
 }
 
 async function downloadOne (row) {

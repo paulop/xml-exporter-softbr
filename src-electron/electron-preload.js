@@ -71,7 +71,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   export: {
     downloadOne: invoke('export:downloadOne'),
-    downloadZip: invoke('export:downloadZip')
+    downloadZip: invoke('export:downloadZip'),
+    downloadReceiptPdf: invoke('export:downloadReceiptPdf')
   },
   settings: {
     getDestinationFolder: invoke('settings:getDestinationFolder'),
