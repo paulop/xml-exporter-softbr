@@ -14,6 +14,7 @@
       type="textarea"
       autogrow
       filled
+      dense
       class="sql-editor"
       label="SQL"
       @update:model-value="validate"

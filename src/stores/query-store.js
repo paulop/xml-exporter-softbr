@@ -16,6 +16,15 @@ export const useQueryStore = defineStore('query', () => {
   const totalValor = ref(0)
   const querying = ref(false)
   const lastError = ref('')
+  const groupFilter = ref(null)
+
+  function setGroupFilter (label, chaves) {
+    groupFilter.value = { label, chaves }
+  }
+
+  function clearGroupFilter () {
+    groupFilter.value = null
+  }
 
   function setCurrentMonth () {
     const now = new Date()
@@ -32,6 +41,7 @@ export const useQueryStore = defineStore('query', () => {
   async function run (connectionId) {
     querying.value = true
     lastError.value = ''
+    groupFilter.value = null
     try {
       const result = await window.api.query.run({
         connectionId,
@@ -64,6 +74,9 @@ export const useQueryStore = defineStore('query', () => {
     totalValor,
     querying,
     lastError,
+    groupFilter,
+    setGroupFilter,
+    clearGroupFilter,
     setCurrentMonth,
     setPreviousMonth,
     run

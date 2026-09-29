@@ -1,0 +1,316 @@
+<template>
+  <q-card flat bordered class="q-mt-md validation-card">
+    <q-card-section class="row items-center justify-between">
+      <div class="text-subtitle1">Validação e recuperação automática</div>
+      <q-btn
+        color="primary"
+        outline
+        icon="fact_check"
+        label="Executar validação"
+        :loading="running"
+        :disable="queryStore.rows.length === 0"
+        @click="run"
+      />
+    </q-card-section>
+
+    <template v-if="steps.length">
+      <q-separator />
+
+      <q-card-section class="log-area">
+        <div class="log-line">
+          <q-icon name="check_circle" color="positive" size="18px" />
+          <span>
+            Passo 1 — Extração do banco de dados: já realizada pela consulta acima
+            ({{ queryStore.count }} nota(s)).
+          </span>
+        </div>
+
+        <template v-for="step in steps" :key="step.id">
+          <div v-if="step.id === 'estrutura-protocolo'" class="log-line">
+            <q-icon :name="statusIcon(step.status)" :color="statusColor(step.status)" size="18px" />
+            <div class="col">
+              <div><strong>{{ step.label }}</strong></div>
+              <div class="row q-gutter-xs q-mt-xs">
+                <q-chip
+                  v-for="g in grupoChips"
+                  :key="g.key"
+                  clickable
+                  dense
+                  :color="queryStore.groupFilter?.label === g.label ? 'primary' : 'grey-3'"
+                  :text-color="queryStore.groupFilter?.label === g.label ? 'white' : 'black'"
+                  @click="toggleGrupo(g)"
+                >
+                  {{ g.label }}: {{ g.count }}
+                </q-chip>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="log-line">
+            <q-icon :name="statusIcon(step.status)" :color="statusColor(step.status)" size="18px" />
+            <span><strong>{{ step.label }}:</strong> {{ step.detail }}</span>
+          </div>
+        </template>
+
+        <q-expansion-item
+          v-if="duplicates.length"
+          dense
+          icon="content_copy"
+          :label="`Duplicatas removidas (${duplicates.length})`"
+          class="q-mt-sm"
+        >
+          <q-list dense bordered separator>
+            <q-item v-for="(d, i) in duplicates" :key="i">
+              <q-item-section>
+                Chave {{ d.chave }} — mantida de "{{ d.mantidoDe }}", descartada de "{{ d.descartadoDe }}"
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-expansion-item>
+
+        <q-expansion-item
+          v-if="invalid.length"
+          dense
+          icon="report"
+          :label="`Notas em inconformidade (${invalid.length})`"
+          class="q-mt-sm"
+        >
+          <q-list dense bordered separator>
+            <q-item v-for="(item, i) in invalid" :key="i">
+              <q-item-section>
+                Nº {{ item.numero }} / Série {{ item.serie }} — {{ item.motivo }}
+              </q-item-section>
+            </q-item>
+          </q-list>
+          <div class="q-pa-sm">
+            <q-btn
+              flat
+              dense
+              icon="download"
+              label="Baixar log de inconformidades (CSV)"
+              @click="downloadInconformidadesCsv"
+            />
+          </div>
+        </q-expansion-item>
+
+        <q-expansion-item
+          v-if="naoRecuperados.length"
+          dense
+          icon="link_off"
+          :label="`Lacunas não recuperadas localmente (${naoRecuperados.length})`"
+          class="q-mt-sm"
+        >
+          <q-list dense bordered separator>
+            <q-item v-for="(g, i) in naoRecuperados" :key="i">
+              <q-item-section>Série {{ g.serie }} — Nº {{ g.numero }}</q-item-section>
+            </q-item>
+          </q-list>
+          <div class="q-pa-sm">
+            <q-btn
+              flat
+              dense
+              icon="link"
+              label="Verificar manualmente no portal TOTVS"
+              @click="settingsStore.openPortal"
+            />
+          </div>
+        </q-expansion-item>
+
+        <q-separator class="q-my-md" />
+
+        <div class="text-subtitle2 q-mb-sm">Relatório de quebras por série</div>
+        <q-markup-table dense flat bordered>
+          <thead>
+            <tr>
+              <th>CNPJ</th>
+              <th>Série</th>
+              <th>Nº inicial</th>
+              <th>Nº final</th>
+              <th>Qtde esperada</th>
+              <th>Qtde encontrada</th>
+              <th>Lacunas não recuperadas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(r, i) in reportRows" :key="i">
+              <td>{{ r.cnpj }}</td>
+              <td>{{ r.serie }}</td>
+              <td>{{ r.numeroInicial }}</td>
+              <td>{{ r.numeroFinal }}</td>
+              <td>{{ r.quantidadeEsperada }}</td>
+              <td>{{ r.quantidadeEncontrada }}</td>
+              <td>{{ r.lacunasNaoRecuperadas.join(', ') || '—' }}</td>
+            </tr>
+            <tr v-if="reportRows.length === 0">
+              <td colspan="7" class="text-center text-grey">Nenhuma série analisada.</td>
+            </tr>
+          </tbody>
+        </q-markup-table>
+
+        <div class="row justify-end q-mt-sm">
+          <q-btn
+            flat
+            dense
+            icon="download"
+            label="Baixar CSV do relatório"
+            :disable="reportRows.length === 0"
+            @click="downloadCsv"
+          />
+        </div>
+      </q-card-section>
+    </template>
+  </q-card>
+</template>
+
+<script setup>
+import { ref, computed } from 'vue'
+import { useQuasar } from 'quasar'
+import { useQueryStore } from '@/stores/query-store'
+import { useSettingsStore } from '@/stores/settings-store'
+import { toPlain } from '@/utils/ipc'
+
+const $q = useQuasar()
+const queryStore = useQueryStore()
+const settingsStore = useSettingsStore()
+
+const running = ref(false)
+const steps = ref([])
+const duplicates = ref([])
+const invalid = ref([])
+const naoRecuperados = ref([])
+const reportRows = ref([])
+const grupos = ref({ normal: [], offline: [], autorizada: [], cancelada: [], inutilizada: [], xmlInvalido: [] })
+
+const grupoChips = computed(() => [
+  { key: 'normal', label: 'Normal', count: grupos.value.normal.length, chaves: grupos.value.normal },
+  { key: 'offline', label: 'Offline', count: grupos.value.offline.length, chaves: grupos.value.offline },
+  { key: 'autorizada', label: 'Autorizada', count: grupos.value.autorizada.length, chaves: grupos.value.autorizada },
+  { key: 'cancelada', label: 'Cancelada', count: grupos.value.cancelada.length, chaves: grupos.value.cancelada },
+  { key: 'inutilizada', label: 'Inutilizada', count: grupos.value.inutilizada.length, chaves: grupos.value.inutilizada },
+  { key: 'xmlInvalido', label: 'XML corrompido/ausente', count: grupos.value.xmlInvalido.length, chaves: grupos.value.xmlInvalido }
+])
+
+function toggleGrupo (grupo) {
+  if (queryStore.groupFilter?.label === grupo.label) {
+    queryStore.clearGroupFilter()
+  } else {
+    queryStore.setGroupFilter(grupo.label, grupo.chaves)
+  }
+}
+
+function statusIcon (status) {
+  return status === 'ok' ? 'check_circle' : status === 'warn' ? 'warning' : 'error'
+}
+
+function statusColor (status) {
+  return status === 'ok' ? 'positive' : status === 'warn' ? 'warning' : 'negative'
+}
+
+async function run () {
+  running.value = true
+  try {
+    const result = await window.api.validation.run(toPlain(queryStore.rows))
+    steps.value = result.steps
+    grupos.value = result.grupos
+    duplicates.value = result.duplicates
+    invalid.value = result.invalid
+    naoRecuperados.value = result.naoRecuperados
+    reportRows.value = result.reportRows
+    queryStore.clearGroupFilter()
+
+    if (result.recovered.length > 0) {
+      const existingChaves = new Set(queryStore.rows.map((r) => r.chave))
+      const newRows = result.recovered.filter((r) => !existingChaves.has(r.chave))
+      queryStore.rows = [...queryStore.rows, ...newRows]
+    }
+
+    queryStore.selected = result.finalItems
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err.message ?? String(err) })
+  } finally {
+    running.value = false
+  }
+}
+
+function toCsvValue (value) {
+  const str = String(value ?? '')
+  return /[",\n;]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
+}
+
+function formatCurrency (value) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0)
+}
+
+function formatDate (value) {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).format(date)
+}
+
+async function downloadInconformidadesCsv () {
+  const header = [
+    'Número', 'Série', 'Chave', 'Data emissão', 'Valor',
+    'Tp emissão', 'Status', 'XML status', 'Origem', 'Motivo'
+  ]
+  const lines = [header.join(';')]
+  for (const item of invalid.value) {
+    lines.push([
+      item.numero, item.serie, item.chave, formatDate(item.dataEmissao), formatCurrency(item.valor),
+      item.tpEmissao, item.status, item.xmlStatus, item.origem, item.motivo
+    ].map(toCsvValue).join(';'))
+  }
+
+  const result = await window.api.export.downloadReportCsv({
+    csv: lines.join('\n'),
+    fileName: `inconformidades-${new Date().toISOString().slice(0, 10)}.csv`
+  })
+
+  if (!result.ok) {
+    $q.notify({ type: 'negative', message: result.message ?? 'Não foi possível salvar o log.' })
+  } else {
+    $q.notify({ type: 'positive', message: `Log salvo em ${result.path}` })
+  }
+}
+
+async function downloadCsv () {
+  const header = [
+    'CNPJ', 'Série', 'Número inicial', 'Número final',
+    'Quantidade esperada', 'Quantidade encontrada', 'Lacunas não recuperadas'
+  ]
+  const lines = [header.join(';')]
+  for (const r of reportRows.value) {
+    lines.push([
+      r.cnpj, r.serie, r.numeroInicial, r.numeroFinal,
+      r.quantidadeEsperada, r.quantidadeEncontrada, r.lacunasNaoRecuperadas.join(' ')
+    ].map(toCsvValue).join(';'))
+  }
+
+  const result = await window.api.export.downloadReportCsv({
+    csv: lines.join('\n'),
+    fileName: `relatorio-quebras-${new Date().toISOString().slice(0, 10)}.csv`
+  })
+
+  if (!result.ok) {
+    $q.notify({ type: 'negative', message: result.message ?? 'Não foi possível salvar o relatório.' })
+  } else {
+    $q.notify({ type: 'positive', message: `Relatório salvo em ${result.path}` })
+  }
+}
+</script>
+
+<style scoped>
+.log-area {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.log-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+}
+</style>

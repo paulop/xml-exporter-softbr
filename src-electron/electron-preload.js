@@ -72,11 +72,19 @@ contextBridge.exposeInMainWorld('api', {
   export: {
     downloadOne: invoke('export:downloadOne'),
     downloadZip: invoke('export:downloadZip'),
-    downloadReceiptPdf: invoke('export:downloadReceiptPdf')
+    downloadReceiptPdf: invoke('export:downloadReceiptPdf'),
+    downloadReportCsv: invoke('export:downloadReportCsv')
   },
   settings: {
     getDestinationFolder: invoke('settings:getDestinationFolder'),
-    setDestinationFolder: invoke('settings:setDestinationFolder')
+    setDestinationFolder: invoke('settings:setDestinationFolder'),
+    getSearchFolders: invoke('settings:getSearchFolders'),
+    addSearchFolder: invoke('settings:addSearchFolder'),
+    removeSearchFolder: invoke('settings:removeSearchFolder'),
+    openPortal: invoke('settings:openPortal')
+  },
+  validation: {
+    run: invoke('validation:run')
   },
   app: {
     getVersion: invoke('app:getVersion'),

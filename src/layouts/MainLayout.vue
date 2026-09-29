@@ -44,7 +44,7 @@
 
               <q-item v-close-popup clickable to="/settings/export">
                 <q-item-section avatar><q-icon name="folder_zip" /></q-item-section>
-                <q-item-section>Exportação</q-item-section>
+                <q-item-section>Pastas</q-item-section>
               </q-item>
 
               <q-separator />

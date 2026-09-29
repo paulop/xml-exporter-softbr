@@ -17,6 +17,10 @@ const schema = {
     type: ['string', 'null'],
     default: null
   },
+  searchFolders: {
+    type: 'array',
+    default: ['C:\\Custodia', 'Plugin Fiscal\\kcf\\XML']
+  },
   appSettings: {
     type: 'object',
     default: { checkUpdatesOnStartup: true }

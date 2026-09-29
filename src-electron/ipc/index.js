@@ -4,6 +4,7 @@ import * as query from './query.js'
 import * as exportIpc from './export.js'
 import * as settings from './settings.js'
 import * as updater from './updater.js'
+import * as validation from './validation.js'
 
 export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('connections:list', () => connections.listConnections())
@@ -22,9 +23,16 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('export:downloadOne', (_e, item) => exportIpc.downloadOne(item))
   ipcMain.handle('export:downloadZip', (_e, items) => exportIpc.downloadZip(items))
   ipcMain.handle('export:downloadReceiptPdf', (_e, payload) => exportIpc.downloadReceiptPdf(payload))
+  ipcMain.handle('export:downloadReportCsv', (_e, payload) => exportIpc.downloadReportCsv(payload))
 
   ipcMain.handle('settings:getDestinationFolder', () => settings.getDestinationFolder())
   ipcMain.handle('settings:setDestinationFolder', () => settings.setDestinationFolder())
+  ipcMain.handle('settings:getSearchFolders', () => settings.getSearchFolders())
+  ipcMain.handle('settings:addSearchFolder', () => settings.addSearchFolder())
+  ipcMain.handle('settings:removeSearchFolder', (_e, folderPath) => settings.removeSearchFolder(folderPath))
+  ipcMain.handle('settings:openPortal', () => settings.openPortal())
+
+  ipcMain.handle('validation:run', (_e, rows) => validation.run(rows))
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('app:checkForUpdates', () => updater.checkForUpdates())

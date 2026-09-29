@@ -79,6 +79,20 @@ export async function downloadZip (items) {
   return { ok: true, path: zipPath, fileCount: validItems.length }
 }
 
+export async function downloadReportCsv ({ csv, fileName }) {
+  const result = await dialog.showSaveDialog({
+    defaultPath: sanitizeFileName(fileName) || 'relatorio-quebras.csv',
+    filters: [{ name: 'CSV', extensions: ['csv'] }]
+  })
+  if (result.canceled || !result.filePath) {
+    return { ok: false, message: 'Operação cancelada.' }
+  }
+
+  // BOM UTF-8 para o Excel reconhecer acentuação sem precisar configurar a importação.
+  await fs.writeFile(result.filePath, '﻿' + (csv ?? ''), 'utf-8')
+  return { ok: true, path: result.filePath }
+}
+
 export async function downloadReceiptPdf ({ html, fileName }) {
   const result = await dialog.showSaveDialog({
     defaultPath: sanitizeFileName(fileName) || 'cupom.pdf',
