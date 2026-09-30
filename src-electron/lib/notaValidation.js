@@ -42,6 +42,8 @@ function emptyParsed () {
     serie: null,
     cnpj: null,
     chave: null,
+    valor: null,
+    dataEmissao: null,
     temProtocolo: false,
     contingencia: false,
     wellFormed: false
@@ -69,12 +71,15 @@ export function parseXml (xmlString) {
   const idAttr = String(infNFe['@_Id'] || '').replace(/^NFe/i, '')
   const chave = String(infProt?.chNFe || idAttr || '').trim() || null
   const tpEmis = ide?.tpEmis
+  const vNF = deepFind(infNFe, 'vNF')
 
   return {
     numero: ide?.nNF !== undefined && ide?.nNF !== null ? Number(ide.nNF) : null,
     serie: ide?.serie !== undefined && ide?.serie !== null ? Number(ide.serie) : null,
     cnpj: emit?.CNPJ ? String(emit.CNPJ) : (emit?.CPF ? String(emit.CPF) : null),
     chave,
+    valor: vNF !== undefined && vNF !== null ? Number(vNF) : null,
+    dataEmissao: ide?.dhEmi ? String(ide.dhEmi) : (ide?.dEmi ? String(ide.dEmi) : null),
     temProtocolo: !!infProt?.nProt,
     contingencia: tpEmis !== undefined && tpEmis !== null && Number(tpEmis) !== 1,
     wellFormed: true
@@ -109,6 +114,19 @@ function decodeChave (chave) {
   }
 }
 
+// Nota que nunca chegou a existir no banco (nem a chave é conhecida), mas o
+// Plugin Fiscal/DocFiscAll grava um "lote de envio" com série/número no
+// próprio nome (ex. "serie_004_rp_72747293_numero_29337_..._env-lot.xml").
+// Confirmado manualmente: esse arquivo contém o <NFe> completo (não é só um
+// envelope SOAP de protocolo — isso é o "ret-lot", que não serve pra isso).
+const LOTE_ENVIO_RE = /serie[_-](\d+)[_-].*numero[_-](\d+).*env-?lot/i
+
+function extractSerieNumeroFromLoteEnvio (fileName) {
+  const match = fileName.match(LOTE_ENVIO_RE)
+  if (!match) return null
+  return { serie: Number(match[1]), numero: Number(match[2]) }
+}
+
 async function listXmlFilesRecursive (dir) {
   const found = []
   let entries
@@ -128,14 +146,15 @@ async function listXmlFilesRecursive (dir) {
   return found
 }
 
-async function loadFolderEntry (filePath, folder) {
+async function loadFolderEntry (match) {
+  if (!match) return null
   let xmlString
   try {
-    xmlString = await fs.readFile(filePath, 'utf-8')
+    xmlString = await fs.readFile(match.filePath, 'utf-8')
   } catch {
     return null
   }
-  return { filePath, folder, xmlString, parsed: parseXml(xmlString) }
+  return { filePath: match.filePath, folder: match.folder, via: match.via, xmlString, parsed: parseXml(xmlString) }
 }
 
 // Ordem da lista `folders` define prioridade: a primeira pasta que contiver
@@ -170,7 +189,7 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
     // nota certa.
     const stem = name.slice(0, name.length - 4) // remove ".xml"/".XML" (já garantido pela listagem)
     if (/^\d{44}$/.test(stem) && !byChave.has(stem)) {
-      byChave.set(stem, { filePath, folder })
+      byChave.set(stem, { filePath, folder, via: 'chave-exata' })
     }
 
     // Lacuna de numeração: a chave pode estar em qualquer posição do nome
@@ -179,11 +198,26 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
     if (chave) {
       const { cnpj, serie, numero } = decodeChave(chave)
       const numSerieKey = `${serie}|${numero}`
-      if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder })
+      if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder, via: 'chave-no-nome' })
 
       const fullKey = `${cnpj}|${numSerieKey}`
-      if (!byNumSerieCnpj.has(fullKey)) byNumSerieCnpj.set(fullKey, { filePath, folder })
+      if (!byNumSerieCnpj.has(fullKey)) byNumSerieCnpj.set(fullKey, { filePath, folder, via: 'chave-no-nome' })
     }
+  }
+
+  // Segunda passada, só pra preencher lacunas que a chave (passada acima)
+  // não resolveu: nota que nem chegou a existir no banco e cujo arquivo não
+  // tem a chave em lugar nenhum do nome, só o lote de envio ao SEFAZ. Roda
+  // depois, e só complementa (nunca sobrescreve) pra chave continuar tendo
+  // prioridade sobre o lote quando as duas existirem.
+  for (const { filePath, folder } of allFiles) {
+    if (isCancelled?.()) throw new ValidationCancelledError()
+
+    const found = extractSerieNumeroFromLoteEnvio(path.basename(filePath))
+    if (!found) continue
+
+    const numSerieKey = `${found.serie}|${found.numero}`
+    if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder, via: 'lote-envio' })
   }
 
   return { byChave, byNumSerieCnpj, byNumSerie, totalFound: allFiles.length }
@@ -266,18 +300,37 @@ function stripInternal (item) {
   return rest
 }
 
+// Descrição amigável de como a nota foi encontrada, pra aparecer no log —
+// é esse trabalho de recuperação que justifica a ferramenta existir.
+const METODO_RECUPERACAO = {
+  'chave-exata': 'Nome exato da chave',
+  'chave-no-nome': 'Chave de acesso no nome do arquivo',
+  'lote-envio': 'Lote de envio à SEFAZ (nota nunca chegou a ser gravada no banco)'
+}
+
 function buildRecoveredItem (base, found) {
+  const { parsed } = found
   return {
-    numero: found.parsed.numero ?? base.numero ?? null,
-    serie: found.parsed.serie ?? base.serie ?? null,
-    chave: found.parsed.chave ?? base.chave ?? null,
-    dataEmissao: base.dataEmissao ?? null,
-    valor: base.valor ?? null,
-    tpEmissao: base.tpEmissao ?? null,
-    status: base.status ?? null,
+    numero: parsed.numero ?? base.numero ?? null,
+    serie: parsed.serie ?? base.serie ?? null,
+    chave: parsed.chave ?? base.chave ?? null,
+    // Lacuna de numeração não tem linha de banco (base é só {numero,serie,cnpj}),
+    // então esses campos vêm do próprio XML recuperado; nota com XML
+    // corrompido/ausente já tinha essas colunas no banco — nesse caso elas
+    // têm prioridade por serem mais confiáveis que o que dá pra inferir do XML.
+    dataEmissao: base.dataEmissao ?? parsed.dataEmissao ?? null,
+    valor: base.valor ?? parsed.valor ?? null,
+    tpEmissao: base.tpEmissao ?? (parsed.contingencia ? 'Contingência' : 'Normal'),
+    // O "lote de envio" recuperado é o próprio pedido mandado à SEFAZ — não
+    // carrega protocolo (isso fica só no "ret-lot", que não tem a nota em
+    // si). Sem informação de cancelamento no XML, a venda é tratada como
+    // válida/autorizada, que é a situação real da imensa maioria dos casos
+    // em que a nota só está ausente do banco por falha de gravação local.
+    status: base.status ?? 'Autorizada',
     xmlStatus: 'Disponível',
     xmlContent: Buffer.from(found.xmlString, 'utf-8').toString('base64'),
     origem: path.basename(found.folder),
+    metodoRecuperacao: METODO_RECUPERACAO[found.via] ?? 'Pasta de apoio',
     _parsed: found.parsed
   }
 }
@@ -366,7 +419,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
     const precisaRecuperar = !row.xmlContent || !row._parsed.wellFormed || !row._parsed.temProtocolo
     if (precisaRecuperar && row.chave) {
       const match = folderIndex.byChave.get(row.chave)
-      const found = match ? await loadFolderEntry(match.filePath, match.folder) : null
+      const found = await loadFolderEntry(match)
       if (found?.parsed.wellFormed) {
         workingSet.push(buildRecoveredItem(row, found))
         recuperadosPorChave++
@@ -384,7 +437,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
       if (isCancelled?.()) throw new ValidationCancelledError()
 
       const match = lookupByNumeroSerie(folderIndex, group.cnpj, group.serie, numero)
-      const found = match ? await loadFolderEntry(match.filePath, match.folder) : null
+      const found = await loadFolderEntry(match)
       if (found?.parsed.wellFormed) {
         recoveredGaps.push(buildRecoveredItem({ numero, serie: group.serie, cnpj: group.cnpj }, found))
       } else {
@@ -393,13 +446,16 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
     }
   }
 
+  const recuperadosPorLote = recoveredGaps.filter((i) => i.metodoRecuperacao === METODO_RECUPERACAO['lote-envio']).length
+
   steps.push({
     id: 'busca-cascata',
     label: 'Busca em cascata de XMLs faltantes',
     status: naoRecuperados.length > 0 ? 'warn' : 'ok',
     detail: `${folderIndex.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas · ` +
-      `${recuperadosPorChave} recuperado(s) por nome exato da chave, ${recoveredGaps.length} por número/série · ` +
-      `${naoRecuperados.length} lacuna(s) não encontrada(s) — verificar manualmente no portal TOTVS.`
+      `${recuperadosPorChave} recuperado(s) por nome exato da chave, ${recoveredGaps.length} por número/série` +
+      (recuperadosPorLote > 0 ? ` (${recuperadosPorLote} delas via lote de envio à SEFAZ — nem chegaram a ser gravadas no banco)` : '') +
+      ` · ${naoRecuperados.length} lacuna(s) não encontrada(s) — verificar manualmente no portal TOTVS.`
   })
 
   checkCancelled()

@@ -79,6 +79,27 @@
         </template>
 
         <q-expansion-item
+          v-if="recovered.length"
+          dense
+          icon="task_alt"
+          default-opened
+          :label="`Notas recuperadas das pastas (${recovered.length})`"
+          class="q-mt-sm"
+        >
+          <q-list dense bordered separator>
+            <q-item v-for="(item, i) in recovered" :key="i">
+              <q-item-section avatar>
+                <q-icon name="check_circle" color="positive" size="18px" />
+              </q-item-section>
+              <q-item-section>
+                <div>Nº {{ item.numero }} / Série {{ item.serie }} — {{ item.metodoRecuperacao }}</div>
+                <div class="text-caption text-grey">Chave {{ item.chave }} · Pasta "{{ item.origem }}"</div>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-expansion-item>
+
+        <q-expansion-item
           v-if="duplicates.length"
           dense
           icon="content_copy"
@@ -203,6 +224,7 @@ const running = ref(false)
 const cancelling = ref(false)
 const progress = ref(null)
 const steps = ref([])
+const recovered = ref([])
 const duplicates = ref([])
 const invalid = ref([])
 const naoRecuperados = ref([])
@@ -268,6 +290,7 @@ async function run () {
     }
 
     steps.value = result.steps
+    recovered.value = result.recovered
     grupos.value = result.grupos
     duplicates.value = result.duplicates
     invalid.value = result.invalid
