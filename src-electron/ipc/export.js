@@ -17,7 +17,7 @@ function sanitizeFileName (value) {
 }
 
 function fileNameFor (item) {
-  return `${sanitizeFileName(item.chave)}-${sanitizeFileName(item.numero)}.xml`
+  return `${sanitizeFileName(item.chave)}.xml`
 }
 
 function toBuffer (xmlContent) {

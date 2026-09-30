@@ -27,8 +27,11 @@
     <div class="text-subtitle2 q-mb-sm">Pastas de busca de XMLs faltantes</div>
     <div class="text-caption text-grey q-mb-sm">
       Usadas na busca em cascata para recuperar notas ausentes ou com sequência quebrada
-      (ex.: pasta de custódia do caixa, pasta do Plugin Fiscal). A ordem da lista define a
-      prioridade de busca.
+      (ex.: pasta de custódia do caixa, pasta do Plugin Fiscal). A busca percorre
+      recursivamente todas as subpastas dentro de cada pasta cadastrada. A ordem da
+      lista define a prioridade de busca. Para não ler arquivos de anos fora do período
+      consultado, o app filtra pela data no nome do arquivo (ou, na ausência dela, pela
+      data de criação do arquivo).
     </div>
 
     <q-list bordered separator class="rounded-borders">

@@ -1,7 +1,33 @@
 import { store } from '../lib/store.js'
-import { runValidation } from '../lib/notaValidation.js'
+import { runValidation, ValidationCancelledError } from '../lib/notaValidation.js'
 
-export async function run (rows) {
+let mainWindowRef = null
+let cancelRequested = false
+
+export function init (mainWindow) {
+  mainWindowRef = mainWindow
+}
+
+export function cancel () {
+  cancelRequested = true
+}
+
+export async function run (rows, uf) {
+  cancelRequested = false
   const folders = store.get('searchFolders')
-  return runValidation({ rows: rows ?? [], folders })
+
+  try {
+    return await runValidation({
+      rows: rows ?? [],
+      folders,
+      uf,
+      onProgress: (info) => mainWindowRef?.webContents.send('validation:progress', info),
+      isCancelled: () => cancelRequested
+    })
+  } catch (err) {
+    if (err instanceof ValidationCancelledError) {
+      return { cancelled: true }
+    }
+    throw err
+  }
 }

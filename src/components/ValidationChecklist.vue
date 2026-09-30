@@ -2,15 +2,56 @@
   <q-card flat bordered class="q-mt-md validation-card">
     <q-card-section class="row items-center justify-between">
       <div class="text-subtitle1">Validação e recuperação automática</div>
-      <q-btn
+      <div class="row items-center q-gutter-sm">
+        <q-input
+          v-model="uf"
+          dense
+          filled
+          label="UF"
+          maxlength="2"
+          style="width: 70px"
+          :disable="running"
+        >
+          <q-tooltip>
+            Código IBGE do estado (2 primeiros dígitos da chave de acesso), usado para
+            reforçar o filtro de arquivos nas pastas de busca. Preenchido automaticamente
+            com a primeira chave encontrada na consulta.
+          </q-tooltip>
+        </q-input>
+        <q-btn
+          v-if="running"
+          color="negative"
+          round
+          dense
+          icon="stop"
+          :loading="cancelling"
+          aria-label="Parar processamento"
+          @click="stop"
+        >
+          <q-tooltip>Parar processamento</q-tooltip>
+        </q-btn>
+        <q-btn
+          color="primary"
+          outline
+          icon="fact_check"
+          label="Executar validação"
+          :loading="running"
+          :disable="running || queryStore.rows.length === 0"
+          @click="run"
+        />
+      </div>
+    </q-card-section>
+
+    <q-card-section v-if="running" class="q-pt-none">
+      <q-linear-progress
+        :indeterminate="progressIndeterminate"
+        :value="progressValue"
         color="primary"
-        outline
-        icon="fact_check"
-        label="Executar validação"
-        :loading="running"
-        :disable="queryStore.rows.length === 0"
-        @click="run"
+        stripe
+        size="10px"
+        class="rounded-borders"
       />
+      <div class="text-caption text-grey q-mt-xs">{{ progressLabel }}</div>
     </q-card-section>
 
     <template v-if="steps.length">
@@ -163,7 +204,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useQueryStore } from '@/stores/query-store'
 import { useSettingsStore } from '@/stores/settings-store'
@@ -173,13 +214,23 @@ const $q = useQuasar()
 const queryStore = useQueryStore()
 const settingsStore = useSettingsStore()
 
+const uf = ref('')
 const running = ref(false)
+const cancelling = ref(false)
+const progress = ref(null)
 const steps = ref([])
 const duplicates = ref([])
 const invalid = ref([])
 const naoRecuperados = ref([])
 const reportRows = ref([])
 const grupos = ref({ normal: [], offline: [], autorizada: [], cancelada: [], inutilizada: [], xmlInvalido: [] })
+
+// Preenche a UF automaticamente com os 2 primeiros dígitos (cUF) da
+// primeira chave de acesso encontrada na consulta.
+watch(() => queryStore.rows, (rows) => {
+  const withChave = rows.find((r) => r.chave && String(r.chave).length >= 2)
+  uf.value = withChave ? String(withChave.chave).slice(0, 2) : ''
+}, { immediate: true })
 
 const grupoChips = computed(() => [
   { key: 'normal', label: 'Normal', count: grupos.value.normal.length, chaves: grupos.value.normal },
@@ -189,6 +240,31 @@ const grupoChips = computed(() => [
   { key: 'inutilizada', label: 'Inutilizada', count: grupos.value.inutilizada.length, chaves: grupos.value.inutilizada },
   { key: 'xmlInvalido', label: 'XML corrompido/ausente', count: grupos.value.xmlInvalido.length, chaves: grupos.value.xmlInvalido }
 ])
+
+const progressValue = computed(() => {
+  const p = progress.value
+  if (!p) return 0
+  let value = (p.step - 1) / p.totalSteps
+  if (p.phase === 'indexing' && p.total) {
+    value += (p.current / p.total) / p.totalSteps
+  }
+  return Math.min(1, Math.max(0, value))
+})
+
+const progressIndeterminate = computed(() => progress.value?.phase === 'listing')
+
+const progressLabel = computed(() => {
+  const p = progress.value
+  if (!p) return ''
+  if (p.phase === 'listing') return 'Listando arquivos nas pastas configuradas...'
+  if (p.phase === 'listed') return `${p.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas.`
+  if (p.phase === 'indexing') {
+    const encontrados = `${p.totalFound} arquivo(s) XML encontrado(s) nas pastas`
+    if (p.total) return `${encontrados} · analisando dentro do período: ${p.current}/${p.total}`
+    return encontrados
+  }
+  return `${p.label}...`
+})
 
 function toggleGrupo (grupo) {
   if (queryStore.groupFilter?.label === grupo.label) {
@@ -208,8 +284,21 @@ function statusColor (status) {
 
 async function run () {
   running.value = true
+  cancelling.value = false
+  progress.value = { step: 0, totalSteps: 7 }
+
+  const unsubscribe = window.api.validation.onProgress((info) => {
+    progress.value = info
+  })
+
   try {
-    const result = await window.api.validation.run(toPlain(queryStore.rows))
+    const result = await window.api.validation.run(toPlain(queryStore.rows), uf.value?.trim() || null)
+
+    if (result.cancelled) {
+      $q.notify({ type: 'warning', message: 'Validação cancelada.' })
+      return
+    }
+
     steps.value = result.steps
     grupos.value = result.grupos
     duplicates.value = result.duplicates
@@ -228,8 +317,16 @@ async function run () {
   } catch (err) {
     $q.notify({ type: 'negative', message: err.message ?? String(err) })
   } finally {
+    unsubscribe()
     running.value = false
+    cancelling.value = false
+    progress.value = null
   }
+}
+
+async function stop () {
+  cancelling.value = true
+  await window.api.validation.cancel()
 }
 
 function toCsvValue (value) {

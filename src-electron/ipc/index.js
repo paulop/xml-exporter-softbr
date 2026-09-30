@@ -32,7 +32,9 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('settings:removeSearchFolder', (_e, folderPath) => settings.removeSearchFolder(folderPath))
   ipcMain.handle('settings:openPortal', () => settings.openPortal())
 
-  ipcMain.handle('validation:run', (_e, rows) => validation.run(rows))
+  validation.init(mainWindow)
+  ipcMain.handle('validation:run', (_e, rows, uf) => validation.run(rows, uf))
+  ipcMain.handle('validation:cancel', () => validation.cancel())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('app:checkForUpdates', () => updater.checkForUpdates())

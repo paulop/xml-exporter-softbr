@@ -84,7 +84,9 @@ contextBridge.exposeInMainWorld('api', {
     openPortal: invoke('settings:openPortal')
   },
   validation: {
-    run: invoke('validation:run')
+    run: invoke('validation:run'),
+    cancel: invoke('validation:cancel'),
+    onProgress: onEvent('validation:progress')
   },
   app: {
     getVersion: invoke('app:getVersion'),
