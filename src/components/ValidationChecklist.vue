@@ -3,21 +3,6 @@
     <q-card-section class="row items-center justify-between">
       <div class="text-subtitle1">Validação e recuperação automática</div>
       <div class="row items-center q-gutter-sm">
-        <q-input
-          v-model="uf"
-          dense
-          filled
-          label="UF"
-          maxlength="2"
-          style="width: 70px"
-          :disable="running"
-        >
-          <q-tooltip>
-            Código IBGE do estado (2 primeiros dígitos da chave de acesso), usado para
-            reforçar o filtro de arquivos nas pastas de busca. Preenchido automaticamente
-            com a primeira chave encontrada na consulta.
-          </q-tooltip>
-        </q-input>
         <q-btn
           v-if="running"
           color="negative"
@@ -204,7 +189,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import { useQueryStore } from '@/stores/query-store'
 import { useSettingsStore } from '@/stores/settings-store'
@@ -214,7 +199,6 @@ const $q = useQuasar()
 const queryStore = useQueryStore()
 const settingsStore = useSettingsStore()
 
-const uf = ref('')
 const running = ref(false)
 const cancelling = ref(false)
 const progress = ref(null)
@@ -224,13 +208,6 @@ const invalid = ref([])
 const naoRecuperados = ref([])
 const reportRows = ref([])
 const grupos = ref({ normal: [], offline: [], autorizada: [], cancelada: [], inutilizada: [], xmlInvalido: [] })
-
-// Preenche a UF automaticamente com os 2 primeiros dígitos (cUF) da
-// primeira chave de acesso encontrada na consulta.
-watch(() => queryStore.rows, (rows) => {
-  const withChave = rows.find((r) => r.chave && String(r.chave).length >= 2)
-  uf.value = withChave ? String(withChave.chave).slice(0, 2) : ''
-}, { immediate: true })
 
 const grupoChips = computed(() => [
   { key: 'normal', label: 'Normal', count: grupos.value.normal.length, chaves: grupos.value.normal },
@@ -244,11 +221,7 @@ const grupoChips = computed(() => [
 const progressValue = computed(() => {
   const p = progress.value
   if (!p) return 0
-  let value = (p.step - 1) / p.totalSteps
-  if (p.phase === 'indexing' && p.total) {
-    value += (p.current / p.total) / p.totalSteps
-  }
-  return Math.min(1, Math.max(0, value))
+  return Math.min(1, Math.max(0, (p.step - 1) / p.totalSteps))
 })
 
 const progressIndeterminate = computed(() => progress.value?.phase === 'listing')
@@ -258,11 +231,6 @@ const progressLabel = computed(() => {
   if (!p) return ''
   if (p.phase === 'listing') return 'Listando arquivos nas pastas configuradas...'
   if (p.phase === 'listed') return `${p.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas.`
-  if (p.phase === 'indexing') {
-    const encontrados = `${p.totalFound} arquivo(s) XML encontrado(s) nas pastas`
-    if (p.total) return `${encontrados} · analisando dentro do período: ${p.current}/${p.total}`
-    return encontrados
-  }
   return `${p.label}...`
 })
 
@@ -292,7 +260,7 @@ async function run () {
   })
 
   try {
-    const result = await window.api.validation.run(toPlain(queryStore.rows), uf.value?.trim() || null)
+    const result = await window.api.validation.run(toPlain(queryStore.rows))
 
     if (result.cancelled) {
       $q.notify({ type: 'warning', message: 'Validação cancelada.' })

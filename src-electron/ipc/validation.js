@@ -12,7 +12,7 @@ export function cancel () {
   cancelRequested = true
 }
 
-export async function run (rows, uf) {
+export async function run (rows) {
   cancelRequested = false
   const folders = store.get('searchFolders')
 
@@ -20,7 +20,6 @@ export async function run (rows, uf) {
     return await runValidation({
       rows: rows ?? [],
       folders,
-      uf,
       onProgress: (info) => mainWindowRef?.webContents.send('validation:progress', info),
       isCancelled: () => cancelRequested
     })

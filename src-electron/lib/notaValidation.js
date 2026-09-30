@@ -91,126 +91,21 @@ export function extractFromBase64 (base64Content) {
 }
 
 // A chave de acesso da NF-e/NFC-e (44 dígitos) embute cUF(2) + AAMM(4) +
-// CNPJ(14) + mod(2) + série(3) + nNF(9) + tpEmis(1) + cNF(8) + cDV(1). Como o
-// nome do arquivo normalmente contém a própria chave, o AAMM (posições 3-6)
-// é a forma mais confiável de saber o mês/ano da nota sem abrir o arquivo.
+// CNPJ(14) + mod(2) + série(3) + nNF(9) + tpEmis(1) + cNF(8) + cDV(1). Como
+// o nome do arquivo normalmente contém a própria chave, dá pra decodificar
+// tudo isso (inclusive número/série, usados na busca de lacunas) direto do
+// nome — sem abrir nem parsear o conteúdo do arquivo.
 function extractChaveFromFileName (fileName) {
   const match = fileName.match(/\d{44}/)
   return match ? match[0] : null
 }
 
-function yearMonthFromChave (chave) {
-  const ano = Number(chave.slice(2, 4))
-  const mes = Number(chave.slice(4, 6))
-  if (mes < 1 || mes > 12) return null
-  return (2000 + ano) * 100 + mes
-}
-
-function ufFromChave (chave) {
-  return chave.slice(0, 2)
-}
-
-// Datas genéricas no nome do arquivo (AAAA-MM-DD, AAAAMMDD, DD-MM-AAAA),
-// usadas apenas quando o arquivo não tem a chave de 44 dígitos no nome.
-const FILENAME_DATE_PATTERNS = [
-  { re: /(20\d{2})[-_](\d{2})[-_](\d{2})/, order: 'ymd' },
-  { re: /(20\d{2})(\d{2})(\d{2})(?!\d)/, order: 'ymd' },
-  { re: /(\d{2})[-_](\d{2})[-_](20\d{2})/, order: 'dmy' }
-]
-
-function extractDateFromFileName (fileName) {
-  for (const { re, order } of FILENAME_DATE_PATTERNS) {
-    const match = fileName.match(re)
-    if (!match) continue
-    const [, a, b, c] = match
-    const [y, mo, d] = order === 'ymd' ? [a, b, c] : [c, b, a]
-    const month = Number(mo)
-    const day = Number(d)
-    if (month < 1 || month > 12 || day < 1 || day > 31) continue
-    const date = new Date(Number(y), month - 1, day)
-    if (!Number.isNaN(date.getTime())) return date
-  }
-  return null
-}
-
-const DATE_FILTER_BUFFER_DAYS = 5
-// O AAMM da chave é fixado por lei no momento da emissão — ao contrário da
-// data de criação do arquivo, ele não "escorrega" perto da virada do mês.
-// Testado manualmente contra uma pasta real: com folga de 1 mês, o filtro
-// abrangia 3 meses inteiros e retornava ~4x mais arquivos do que o
-// equivalente a "AAMM*.xml" no Explorer; sem folga, bateu exatamente.
-const MONTH_FILTER_BUFFER_MONTHS = 0
-
-// Faixa [dataEmissao mínima - N dias, dataEmissao máxima + N dias] das notas
-// sendo validadas. A folga cobre notas emitidas perto da virada do período e
-// arquivos cuja data de criação difere um pouco da data de emissão.
-export function computeDateRange (rows, bufferDays = DATE_FILTER_BUFFER_DAYS) {
-  const times = (rows ?? [])
-    .map((r) => {
-      if (!r.dataEmissao) return null
-      const d = r.dataEmissao instanceof Date ? r.dataEmissao : new Date(r.dataEmissao)
-      return Number.isNaN(d.getTime()) ? null : d.getTime()
-    })
-    .filter((t) => t !== null)
-
-  if (times.length === 0) return null
-
-  const from = new Date(Math.min(...times))
-  const to = new Date(Math.max(...times))
-  from.setDate(from.getDate() - bufferDays)
-  to.setDate(to.getDate() + bufferDays)
-  return { from, to }
-}
-
-function shiftYearMonth (yearMonth, deltaMonths) {
-  let year = Math.floor(yearMonth / 100)
-  let month = (yearMonth % 100) + deltaMonths
-  while (month < 1) { month += 12; year -= 1 }
-  while (month > 12) { month -= 12; year += 1 }
-  return year * 100 + month
-}
-
-// Mesma ideia de computeDateRange, mas em granularidade AAMM (ano+mês), que
-// é o que a chave de acesso embutida no nome do arquivo realmente informa.
-export function computeMonthRange (rows, bufferMonths = MONTH_FILTER_BUFFER_MONTHS) {
-  const dateRange = computeDateRange(rows, 0)
-  if (!dateRange) return null
-
-  const fromYm = dateRange.from.getFullYear() * 100 + (dateRange.from.getMonth() + 1)
-  const toYm = dateRange.to.getFullYear() * 100 + (dateRange.to.getMonth() + 1)
-  return { from: shiftYearMonth(fromYm, -bufferMonths), to: shiftYearMonth(toYm, bufferMonths) }
-}
-
-// Prioriza cUF+AAMM da chave de 44 dígitos no nome do arquivo (confirmado
-// manualmente: buscar "502609*.xml" no Explorer já filtra bem — cUF "50" +
-// AAMM "2609"); sem chave reconhecível, cai para uma data genérica no nome
-// e, por fim, para a data de criação (ou modificação, quando o FS não
-// guarda "birthtime" confiável).
-async function isWithinDateRange (filePath, dateRange, monthRange, uf) {
-  const fileName = path.basename(filePath)
-
-  const chave = extractChaveFromFileName(fileName)
-  if (chave) {
-    if (uf && ufFromChave(chave) !== uf) return false
-
-    const yearMonth = yearMonthFromChave(chave)
-    if (yearMonth !== null) {
-      if (!monthRange) return true
-      return yearMonth >= monthRange.from && yearMonth <= monthRange.to
-    }
-  }
-
-  if (!dateRange) return true
-
-  const fromFileName = extractDateFromFileName(fileName)
-  if (fromFileName) return fromFileName >= dateRange.from && fromFileName <= dateRange.to
-
-  try {
-    const stat = await fs.stat(filePath)
-    const reference = stat.birthtimeMs > 0 ? stat.birthtime : stat.mtime
-    return reference >= dateRange.from && reference <= dateRange.to
-  } catch {
-    return true
+function decodeChave (chave) {
+  return {
+    cnpj: chave.slice(6, 20),
+    // posições 21-22 são o "mod" (modelo do documento fiscal) — vêm antes da série.
+    serie: Number(chave.slice(22, 25)),
+    numero: Number(chave.slice(25, 34))
   }
 }
 
@@ -233,9 +128,23 @@ async function listXmlFilesRecursive (dir) {
   return found
 }
 
+async function loadFolderEntry (filePath, folder) {
+  let xmlString
+  try {
+    xmlString = await fs.readFile(filePath, 'utf-8')
+  } catch {
+    return null
+  }
+  return { filePath, folder, xmlString, parsed: parseXml(xmlString) }
+}
+
 // Ordem da lista `folders` define prioridade: a primeira pasta que contiver
-// o arquivo vence em caso de coincidência.
-export async function buildFolderIndex (folders, { dateRange, monthRange, uf, onProgress, isCancelled } = {}) {
+// o arquivo vence em caso de coincidência. Tudo aqui é decodificado do NOME
+// do arquivo (a própria chave já carrega chave/CNPJ/série/número) — nenhum
+// conteúdo é lido nesta fase, então o custo é o mesmo listar 100 ou 100 mil
+// arquivos. O conteúdo só é lido, sob demanda, para os poucos arquivos que
+// realmente batem com alguma nota que precisa ser recuperada.
+export async function buildFolderIndex (folders, { onProgress, isCancelled } = {}) {
   const byChave = new Map()
   const byNumSerieCnpj = new Map()
   const byNumSerie = new Map()
@@ -251,50 +160,33 @@ export async function buildFolderIndex (folders, { dateRange, monthRange, uf, on
 
   onProgress?.({ phase: 'listed', totalFound: allFiles.length })
 
-  const candidates = []
   for (const { filePath, folder } of allFiles) {
     if (isCancelled?.()) throw new ValidationCancelledError()
-    if (await isWithinDateRange(filePath, dateRange, monthRange, uf)) candidates.push({ filePath, folder })
-  }
 
-  const total = candidates.length
-  let processed = 0
-  onProgress?.({ phase: 'indexing', current: 0, total, totalFound: allFiles.length })
+    const name = path.basename(filePath)
 
-  for (const { filePath, folder } of candidates) {
-    if (isCancelled?.()) throw new ValidationCancelledError()
-
-    let xmlString
-    try {
-      xmlString = await fs.readFile(filePath, 'utf-8')
-    } catch {
-      processed++
-      continue
+    // XML corrompido/ausente no banco: o export sempre grava "<chave>.xml",
+    // então um nome de arquivo EXATAMENTE igual a isso é garantidamente a
+    // nota certa.
+    const stem = name.slice(0, name.length - 4) // remove ".xml"/".XML" (já garantido pela listagem)
+    if (/^\d{44}$/.test(stem) && !byChave.has(stem)) {
+      byChave.set(stem, { filePath, folder })
     }
 
-    const parsed = parseXml(xmlString)
-    processed++
-    if (processed % 20 === 0 || processed === total) {
-      onProgress?.({ phase: 'indexing', current: processed, total, totalFound: allFiles.length })
-    }
-    if (!parsed.wellFormed) continue
+    // Lacuna de numeração: a chave pode estar em qualquer posição do nome
+    // (ex. "..._chave_<chave>-nfe.xml"); número/série/CNPJ saem direto dela.
+    const chave = extractChaveFromFileName(name)
+    if (chave) {
+      const { cnpj, serie, numero } = decodeChave(chave)
+      const numSerieKey = `${serie}|${numero}`
+      if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder })
 
-    const entry = { filePath, folder, xmlString, parsed }
-
-    if (parsed.chave && !byChave.has(parsed.chave)) {
-      byChave.set(parsed.chave, entry)
-    }
-
-    if (parsed.numero !== null && parsed.serie !== null) {
-      const numSerieKey = `${parsed.serie}|${parsed.numero}`
-      if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, entry)
-
-      const fullKey = `${parsed.cnpj ?? ''}|${numSerieKey}`
-      if (!byNumSerieCnpj.has(fullKey)) byNumSerieCnpj.set(fullKey, entry)
+      const fullKey = `${cnpj}|${numSerieKey}`
+      if (!byNumSerieCnpj.has(fullKey)) byNumSerieCnpj.set(fullKey, { filePath, folder })
     }
   }
 
-  return { byChave, byNumSerieCnpj, byNumSerie, totalFound: allFiles.length, totalInRange: candidates.length }
+  return { byChave, byNumSerieCnpj, byNumSerie, totalFound: allFiles.length }
 }
 
 function lookupByNumeroSerie (folderIndex, cnpj, serie, numero) {
@@ -392,10 +284,8 @@ function buildRecoveredItem (base, found) {
 
 const TOTAL_STEPS = 7
 
-export async function runValidation ({ rows, folders, uf, onProgress, isCancelled }) {
+export async function runValidation ({ rows, folders, onProgress, isCancelled }) {
   const steps = []
-
-  const normalizedUf = /^\d{2}$/.test(String(uf ?? '').trim()) ? String(uf).trim() : null
 
   const reportStep = (step, label) => onProgress?.({ step, totalSteps: TOTAL_STEPS, label })
   const checkCancelled = () => { if (isCancelled?.()) throw new ValidationCancelledError() }
@@ -462,12 +352,7 @@ export async function runValidation ({ rows, folders, uf, onProgress, isCancelle
 
   // Passo 4 — busca em cascata
   reportStep(4, 'Busca em cascata de XMLs faltantes')
-  const dateRange = computeDateRange(rows)
-  const monthRange = computeMonthRange(rows)
   const folderIndex = await buildFolderIndex(folders, {
-    dateRange,
-    monthRange,
-    uf: normalizedUf,
     isCancelled,
     onProgress: (info) => onProgress?.({ step: 4, totalSteps: TOTAL_STEPS, label: 'Busca em cascata de XMLs faltantes', ...info })
   })
@@ -476,10 +361,13 @@ export async function runValidation ({ rows, folders, uf, onProgress, isCancelle
   let recuperadosPorChave = 0
 
   for (const row of rowsAnnotated) {
+    if (isCancelled?.()) throw new ValidationCancelledError()
+
     const precisaRecuperar = !row.xmlContent || !row._parsed.wellFormed || !row._parsed.temProtocolo
     if (precisaRecuperar && row.chave) {
-      const found = folderIndex.byChave.get(row.chave)
-      if (found && found.parsed.temProtocolo) {
+      const match = folderIndex.byChave.get(row.chave)
+      const found = match ? await loadFolderEntry(match.filePath, match.folder) : null
+      if (found?.parsed.wellFormed) {
         workingSet.push(buildRecoveredItem(row, found))
         recuperadosPorChave++
         continue
@@ -493,8 +381,11 @@ export async function runValidation ({ rows, folders, uf, onProgress, isCancelle
 
   for (const group of groups) {
     for (const numero of group.lacunas) {
-      const found = lookupByNumeroSerie(folderIndex, group.cnpj, group.serie, numero)
-      if (found) {
+      if (isCancelled?.()) throw new ValidationCancelledError()
+
+      const match = lookupByNumeroSerie(folderIndex, group.cnpj, group.serie, numero)
+      const found = match ? await loadFolderEntry(match.filePath, match.folder) : null
+      if (found?.parsed.wellFormed) {
         recoveredGaps.push(buildRecoveredItem({ numero, serie: group.serie, cnpj: group.cnpj }, found))
       } else {
         naoRecuperados.push({ serie: group.serie, numero, cnpj: group.cnpj })
@@ -506,10 +397,9 @@ export async function runValidation ({ rows, folders, uf, onProgress, isCancelle
     id: 'busca-cascata',
     label: 'Busca em cascata de XMLs faltantes',
     status: naoRecuperados.length > 0 ? 'warn' : 'ok',
-    detail: `${folderIndex.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas ` +
-      `(${folderIndex.totalInRange} dentro do período analisado) · ` +
-      `${recuperadosPorChave + recoveredGaps.length} recuperado(s), ` +
-      `${naoRecuperados.length} não encontrado(s) — verificar manualmente no portal TOTVS.`
+    detail: `${folderIndex.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas · ` +
+      `${recuperadosPorChave} recuperado(s) por nome exato da chave, ${recoveredGaps.length} por número/série · ` +
+      `${naoRecuperados.length} lacuna(s) não encontrada(s) — verificar manualmente no portal TOTVS.`
   })
 
   checkCancelled()

@@ -29,9 +29,9 @@
       Usadas na busca em cascata para recuperar notas ausentes ou com sequência quebrada
       (ex.: pasta de custódia do caixa, pasta do Plugin Fiscal). A busca percorre
       recursivamente todas as subpastas dentro de cada pasta cadastrada. A ordem da
-      lista define a prioridade de busca. Para não ler arquivos de anos fora do período
-      consultado, o app filtra pela data no nome do arquivo (ou, na ausência dela, pela
-      data de criação do arquivo).
+      lista define a prioridade de busca. O app identifica as notas pelo nome do
+      arquivo (a própria chave de acesso), então não precisa abrir nem ler o
+      conteúdo de arquivos que não interessam — funciona mesmo com pastas grandes.
     </div>
 
     <q-list bordered separator class="rounded-borders">

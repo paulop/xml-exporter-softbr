@@ -33,7 +33,7 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('settings:openPortal', () => settings.openPortal())
 
   validation.init(mainWindow)
-  ipcMain.handle('validation:run', (_e, rows, uf) => validation.run(rows, uf))
+  ipcMain.handle('validation:run', (_e, rows) => validation.run(rows))
   ipcMain.handle('validation:cancel', () => validation.cancel())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())

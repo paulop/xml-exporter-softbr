@@ -293,7 +293,7 @@ const tpEmissaoOptions = computed(() => {
 })
 
 const filteredRows = computed(() => {
-  const search = searchText.value.trim().toLowerCase()
+  const search = String(searchText.value ?? '').trim().toLowerCase()
   const groupChaves = queryStore.groupFilter?.chaves
 
   return queryStore.rows.filter((row) => {
