@@ -8,7 +8,7 @@ SELECT
     n.valortotal                  AS valor,
     n.FormaEmissao                AS tpEmissao,
     n.Situacao                    AS status,
-    CASE WHEN c.XmlContent64 IS NULL THEN 'Ausente' ELSE 'Disponível' END AS xmlStatus,
+    CASE WHEN c.XmlContent64 IS NULL THEN 'AUSENTE' ELSE 'DISPONÍVEL' END AS xmlStatus,
     c.XmlContent64                AS xmlContent
 FROM nfce_notaeletronica n
 INNER JOIN nfce_notaeletronica_content c

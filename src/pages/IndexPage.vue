@@ -2,16 +2,18 @@
   <q-page class="q-pa-md">
     <div class="row items-end q-col-gutter-md">
       <div class="col-12 col-md-3">
-        <q-select
-          v-model="activeConnectionId"
-          :options="connectionOptions"
-          emit-value
-          map-options
-          dense
-          label="Conexão"
-          :loading="connectionsStore.loading"
-          @update:model-value="onConnectionChange"
-        />
+        <div class="text-caption text-grey-8 row items-center q-gutter-xs">
+          <q-icon name="dns" size="18px" />
+          <span v-if="connectionsStore.loading">Carregando conexões...</span>
+          <span v-else-if="connectionsStore.connections.length === 0">
+            Nenhuma conexão configurada —
+            <router-link to="/settings/connections">cadastre em Configurações</router-link>
+          </span>
+          <span v-else>
+            Consultando {{ connectionsStore.connections.length }} conexão(ões):
+            {{ connectionsStore.connections.map(c => c.name).join(', ') }}
+          </span>
+        </div>
       </div>
 
       <div class="col-6 col-md-2">
@@ -33,7 +35,7 @@
           label="Consultar"
           icon="search"
           :loading="queryStore.querying"
-          :disable="!activeConnectionId"
+          :disable="connectionsStore.connections.length === 0"
           @click="runQuery"
         />
       </div>
@@ -145,7 +147,7 @@
 
       <template #body-cell-xmlStatus="props">
         <q-td :props="props">
-          <q-badge :color="props.value === 'Disponível' ? 'positive' : 'grey'">
+          <q-badge :color="String(props.value ?? '').toUpperCase() === 'DISPONÍVEL' ? 'positive' : 'grey'">
             {{ props.value }}
           </q-badge>
         </q-td>
@@ -185,7 +187,16 @@
 
     <ValidationChecklist />
 
-    <div class="row items-center justify-end q-mt-md">
+    <div class="row items-center justify-end q-mt-md q-gutter-sm">
+      <q-btn
+        color="secondary"
+        outline
+        icon="description"
+        label="Baixar Log"
+        :loading="downloadingLog"
+        :disable="queryStore.selected.length === 0"
+        @click="downloadLog"
+      />
       <q-btn
         color="primary"
         icon="folder_zip"
@@ -197,7 +208,7 @@
     </div>
 
     <div class="row items-center justify-end q-mt-xs export-status">
-      <template v-if="downloadingZip">
+      <template v-if="downloadingZip || downloadingLog">
         <q-spinner-dots color="primary" size="20px" class="q-mr-xs" />
         <span class="text-caption">Salvando arquivo...</span>
       </template>
@@ -223,16 +234,12 @@ const $q = useQuasar()
 const connectionsStore = useConnectionsStore()
 const queryStore = useQueryStore()
 
-const activeConnectionId = ref(null)
 const downloadingZip = ref(false)
+const downloadingLog = ref(false)
 const exportMessage = ref('')
 const exportOk = ref(true)
 const detailOpen = ref(false)
 const detailRow = ref(null)
-
-const connectionOptions = computed(() =>
-  connectionsStore.connections.map((c) => ({ label: c.name, value: c.id }))
-)
 
 const selectedCount = computed(() => queryStore.selected.length)
 const selectedTotal = computed(() =>
@@ -240,6 +247,7 @@ const selectedTotal = computed(() =>
 )
 
 const columns = [
+  { name: 'conexao', label: 'Conexão', field: 'conexao', align: 'left', sortable: true },
   { name: 'numero', label: 'Número', field: 'numero', align: 'left', sortable: true },
   { name: 'serie', label: 'Série', field: 'serie', align: 'left', sortable: true },
   { name: 'chave', label: 'Chave', field: 'chave', align: 'left' },
@@ -330,13 +338,16 @@ function formatDate (value) {
   }).format(date)
 }
 
-async function onConnectionChange (id) {
-  await connectionsStore.setActive(id)
-}
-
 async function runQuery () {
   try {
-    await queryStore.run(activeConnectionId.value)
+    const errors = await queryStore.run()
+    if (errors?.length) {
+      $q.notify({
+        type: 'warning',
+        multiLine: true,
+        message: `${errors.length} conexão(ões) falharam e ficaram de fora da consulta:\n${errors.join('\n')}`
+      })
+    }
   } catch (err) {
     $q.notify({ type: 'negative', message: err.message ?? String(err) })
   }
@@ -375,9 +386,25 @@ async function downloadZip () {
   }
 }
 
+async function downloadLog () {
+  downloadingLog.value = true
+  exportMessage.value = ''
+  try {
+    const result = await window.api.export.downloadLogXlsx(toPlain(queryStore.selected))
+    exportOk.value = result.ok
+    exportMessage.value = result.ok
+      ? `Log salvo em ${result.path}`
+      : result.message
+  } catch (err) {
+    exportOk.value = false
+    exportMessage.value = err.message ?? String(err)
+  } finally {
+    downloadingLog.value = false
+  }
+}
+
 onMounted(async () => {
   await connectionsStore.load()
-  activeConnectionId.value = connectionsStore.activeConnectionId
 })
 </script>
 

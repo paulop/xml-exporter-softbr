@@ -38,13 +38,12 @@ export const useQueryStore = defineStore('query', () => {
     dataFinal.value = date.formatDate(date.endOfDate(previous, 'month'), 'YYYY-MM-DD')
   }
 
-  async function run (connectionId) {
+  async function run () {
     querying.value = true
     lastError.value = ''
     groupFilter.value = null
     try {
       const result = await window.api.query.run({
-        connectionId,
         dataInicial: dataInicial.value,
         dataFinal: dataFinal.value
       })
@@ -53,6 +52,7 @@ export const useQueryStore = defineStore('query', () => {
       totalValor.value = result.totalValor
       // todas as notas vêm pré-selecionadas por padrão
       selected.value = [...result.rows]
+      return result.errors ?? []
     } catch (err) {
       lastError.value = err.message ?? String(err)
       rows.value = []

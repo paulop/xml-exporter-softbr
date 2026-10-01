@@ -24,6 +24,7 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('export:downloadZip', (_e, items) => exportIpc.downloadZip(items))
   ipcMain.handle('export:downloadReceiptPdf', (_e, payload) => exportIpc.downloadReceiptPdf(payload))
   ipcMain.handle('export:downloadReportCsv', (_e, payload) => exportIpc.downloadReportCsv(payload))
+  ipcMain.handle('export:downloadLogXlsx', (_e, items) => exportIpc.downloadLogXlsx(items))
 
   ipcMain.handle('settings:getDestinationFolder', () => settings.getDestinationFolder())
   ipcMain.handle('settings:setDestinationFolder', () => settings.setDestinationFolder())

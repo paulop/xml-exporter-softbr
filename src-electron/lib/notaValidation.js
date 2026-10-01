@@ -38,6 +38,7 @@ export class ValidationCancelledError extends Error {
 
 function emptyParsed () {
   return {
+    tipo: null,
     numero: null,
     serie: null,
     cnpj: null,
@@ -47,6 +48,30 @@ function emptyParsed () {
     temProtocolo: false,
     contingencia: false,
     wellFormed: false
+  }
+}
+
+// Evento de inutilização: a SEFAZ confirma que uma faixa de numeração foi
+// formalmente baixada (sem venda nenhuma por trás) — não é uma nota, mas
+// precisa entrar na exportação do mesmo jeito, senão a sequência numérica
+// fica "furada" sem explicação pra contabilidade.
+function parseInutilizacao (infInut) {
+  const nNFIni = infInut.nNFIni !== undefined ? Number(infInut.nNFIni) : null
+  const nNFFin = infInut.nNFFin !== undefined ? Number(infInut.nNFFin) : null
+  const idAttr = String(infInut['@_Id'] || '').replace(/^ID/i, '')
+
+  return {
+    tipo: 'inutilizacao',
+    numero: nNFIni,
+    serie: infInut.serie !== undefined && infInut.serie !== null ? Number(infInut.serie) : null,
+    cnpj: infInut.CNPJ ? String(infInut.CNPJ) : null,
+    chave: idAttr ? `INUT${idAttr}` : null,
+    valor: null,
+    dataEmissao: infInut.dhRecbto ? String(infInut.dhRecbto) : null,
+    temProtocolo: !!infInut.nProt,
+    contingencia: false,
+    wellFormed: true,
+    inutilizacao: { nNFIni, nNFFin, nProt: infInut.nProt ?? null, xMotivo: infInut.xMotivo ?? null }
   }
 }
 
@@ -61,6 +86,9 @@ export function parseXml (xmlString) {
     return emptyParsed()
   }
 
+  const infInut = deepFind(parsed, 'infInut')
+  if (infInut) return parseInutilizacao(infInut)
+
   const infNFe = deepFind(parsed, 'infNFe')
   if (!infNFe) return emptyParsed()
 
@@ -74,6 +102,7 @@ export function parseXml (xmlString) {
   const vNF = deepFind(infNFe, 'vNF')
 
   return {
+    tipo: 'nfe',
     numero: ide?.nNF !== undefined && ide?.nNF !== null ? Number(ide.nNF) : null,
     serie: ide?.serie !== undefined && ide?.serie !== null ? Number(ide.serie) : null,
     cnpj: emit?.CNPJ ? String(emit.CNPJ) : (emit?.CPF ? String(emit.CPF) : null),
@@ -92,6 +121,83 @@ export function extractFromBase64 (base64Content) {
     return parseXml(Buffer.from(base64Content, 'base64').toString('utf-8'))
   } catch {
     return emptyParsed()
+  }
+}
+
+// Parse "rico" usado só pelo relatório de log (XLSX): além do que parseXml já
+// extrai, traz razão social, destinatário, valores discriminados, protocolo/
+// motivo e ambiente — campos que não interessam ao pipeline de validação,
+// mas são exigidos coluna a coluna no relatório padrão SoftBR.
+export function parseXmlDetalhado (xmlString) {
+  if (!xmlString || !xmlString.trim()) return null
+  if (XMLValidator.validate(xmlString) !== true) return null
+
+  let parsed
+  try {
+    parsed = parser.parse(xmlString)
+  } catch {
+    return null
+  }
+
+  const infInut = deepFind(parsed, 'infInut')
+  if (infInut) {
+    return {
+      tipo: 'inutilizacao',
+      cnpjEmitente: infInut.CNPJ ? String(infInut.CNPJ) : null,
+      razaoSocialEmitente: null,
+      modelo: infInut.mod !== undefined ? String(infInut.mod) : null,
+      numero: infInut.nNFIni !== undefined ? Number(infInut.nNFIni) : null,
+      serie: infInut.serie !== undefined ? Number(infInut.serie) : null,
+      dataEmissao: infInut.dhRecbto ? String(infInut.dhRecbto) : null,
+      chave: null,
+      protocolo: infInut.nProt ? String(infInut.nProt) : null,
+      cStat: infInut.cStat !== undefined ? String(infInut.cStat) : null,
+      xMotivo: infInut.xMotivo ? String(infInut.xMotivo) : null,
+      cnpjDestinatario: null,
+      nomeDestinatario: null,
+      valorProdutos: null,
+      valorIcms: null,
+      baseIcms: null,
+      desconto: null,
+      frete: null,
+      ambiente: infInut.tpAmb !== undefined ? Number(infInut.tpAmb) : null
+    }
+  }
+
+  const infNFe = deepFind(parsed, 'infNFe')
+  if (!infNFe) return null
+
+  const ide = infNFe.ide
+  const emit = infNFe.emit
+  const dest = infNFe.dest
+  const icmsTot = deepFind(infNFe, 'ICMSTot')
+  const infProt = deepFind(parsed, 'infProt')
+
+  const idAttr = String(infNFe['@_Id'] || '').replace(/^NFe/i, '')
+  const chave = String(infProt?.chNFe || idAttr || '').trim() || null
+
+  const toNumber = (v) => (v !== undefined && v !== null ? Number(v) : null)
+
+  return {
+    tipo: 'nfe',
+    cnpjEmitente: emit?.CNPJ ? String(emit.CNPJ) : (emit?.CPF ? String(emit.CPF) : null),
+    razaoSocialEmitente: emit?.xNome ? String(emit.xNome) : null,
+    modelo: ide?.mod !== undefined ? String(ide.mod) : null,
+    numero: toNumber(ide?.nNF),
+    serie: toNumber(ide?.serie),
+    dataEmissao: ide?.dhEmi ? String(ide.dhEmi) : (ide?.dEmi ? String(ide.dEmi) : null),
+    chave,
+    protocolo: infProt?.nProt ? String(infProt.nProt) : null,
+    cStat: infProt?.cStat !== undefined ? String(infProt.cStat) : null,
+    xMotivo: infProt?.xMotivo ? String(infProt.xMotivo) : null,
+    cnpjDestinatario: dest?.CNPJ ? String(dest.CNPJ) : (dest?.CPF ? String(dest.CPF) : null),
+    nomeDestinatario: dest?.xNome ? String(dest.xNome) : null,
+    valorProdutos: toNumber(icmsTot?.vProd),
+    valorIcms: toNumber(icmsTot?.vICMS),
+    baseIcms: toNumber(icmsTot?.vBC),
+    desconto: toNumber(icmsTot?.vDesc),
+    frete: toNumber(icmsTot?.vFrete),
+    ambiente: toNumber(ide?.tpAmb)
   }
 }
 
@@ -125,6 +231,18 @@ function extractSerieNumeroFromLoteEnvio (fileName) {
   const match = fileName.match(LOTE_ENVIO_RE)
   if (!match) return null
   return { serie: Number(match[1]), numero: Number(match[2]) }
+}
+
+// Faixa de numeração inutilizada: número que nunca existiu porque foi
+// formalmente baixado junto à SEFAZ, não porque a venda se perdeu. O
+// "retorno" tem o protocolo (nProt) que comprova a baixa; o "envio" é só o
+// pedido, sem protocolo — por isso só o retorno é reconhecido aqui.
+const INUTILIZACAO_RE = /inutilizacao_serie[_-](\d+)_faixa[_-](\d+)[_-](\d+).*retorno/i
+
+function extractInutilizacaoFromFileName (fileName) {
+  const match = fileName.match(INUTILIZACAO_RE)
+  if (!match) return null
+  return { serie: Number(match[1]), nNFIni: Number(match[2]), nNFFin: Number(match[3]) }
 }
 
 async function listXmlFilesRecursive (dir) {
@@ -220,6 +338,21 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
     if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder, via: 'lote-envio' })
   }
 
+  // Terceira passada, última prioridade: número sem nota nenhuma (nem real,
+  // nem lote de envio) porque a faixa foi inutilizada junto à SEFAZ. Uma
+  // faixa cobre vários números (nNFIni..nNFFin), então expande cada um.
+  for (const { filePath, folder } of allFiles) {
+    if (isCancelled?.()) throw new ValidationCancelledError()
+
+    const faixa = extractInutilizacaoFromFileName(path.basename(filePath))
+    if (!faixa) continue
+
+    for (let numero = faixa.nNFIni; numero <= faixa.nNFFin; numero++) {
+      const numSerieKey = `${faixa.serie}|${numero}`
+      if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder, via: 'inutilizacao' })
+    }
+  }
+
   return { byChave, byNumSerieCnpj, byNumSerie, totalFound: allFiles.length }
 }
 
@@ -305,11 +438,13 @@ function stripInternal (item) {
 const METODO_RECUPERACAO = {
   'chave-exata': 'Nome exato da chave',
   'chave-no-nome': 'Chave de acesso no nome do arquivo',
-  'lote-envio': 'Lote de envio à SEFAZ (nota nunca chegou a ser gravada no banco)'
+  'lote-envio': 'Lote de envio à SEFAZ (nota nunca chegou a ser gravada no banco)',
+  inutilizacao: 'Faixa inutilizada junto à SEFAZ (sem nota correspondente)'
 }
 
 function buildRecoveredItem (base, found) {
   const { parsed } = found
+  const isInutilizacao = parsed.tipo === 'inutilizacao'
   return {
     numero: parsed.numero ?? base.numero ?? null,
     serie: parsed.serie ?? base.serie ?? null,
@@ -320,18 +455,20 @@ function buildRecoveredItem (base, found) {
     // têm prioridade por serem mais confiáveis que o que dá pra inferir do XML.
     dataEmissao: base.dataEmissao ?? parsed.dataEmissao ?? null,
     valor: base.valor ?? parsed.valor ?? null,
-    tpEmissao: base.tpEmissao ?? (parsed.contingencia ? 'Contingência' : 'Normal'),
+    tpEmissao: base.tpEmissao ?? (isInutilizacao ? 'INUTILIZAÇÃO' : (parsed.contingencia ? 'CONTINGÊNCIA' : 'NORMAL')),
     // O "lote de envio" recuperado é o próprio pedido mandado à SEFAZ — não
     // carrega protocolo (isso fica só no "ret-lot", que não tem a nota em
     // si). Sem informação de cancelamento no XML, a venda é tratada como
     // válida/autorizada, que é a situação real da imensa maioria dos casos
     // em que a nota só está ausente do banco por falha de gravação local.
-    status: base.status ?? 'Autorizada',
-    xmlStatus: 'Disponível',
+    // Faixa inutilizada é um caso à parte: não é venda nenhuma, é a própria
+    // baixa formal do número junto à SEFAZ.
+    status: base.status ?? (isInutilizacao ? 'INUTILIZADA' : 'AUTORIZADA'),
+    xmlStatus: 'DISPONÍVEL',
     xmlContent: Buffer.from(found.xmlString, 'utf-8').toString('base64'),
     origem: path.basename(found.folder),
     metodoRecuperacao: METODO_RECUPERACAO[found.via] ?? 'Pasta de apoio',
-    _parsed: found.parsed
+    _parsed: parsed
   }
 }
 
@@ -447,6 +584,12 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
   }
 
   const recuperadosPorLote = recoveredGaps.filter((i) => i.metodoRecuperacao === METODO_RECUPERACAO['lote-envio']).length
+  const recuperadosPorInutilizacao = recoveredGaps.filter((i) => i.metodoRecuperacao === METODO_RECUPERACAO.inutilizacao).length
+
+  const detalhesExtra = [
+    recuperadosPorLote > 0 ? `${recuperadosPorLote} via lote de envio à SEFAZ (nem chegaram a ser gravadas no banco)` : null,
+    recuperadosPorInutilizacao > 0 ? `${recuperadosPorInutilizacao} eram faixa inutilizada (sem nota — número baixado junto à SEFAZ)` : null
+  ].filter(Boolean).join('; ')
 
   steps.push({
     id: 'busca-cascata',
@@ -454,7 +597,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
     status: naoRecuperados.length > 0 ? 'warn' : 'ok',
     detail: `${folderIndex.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas · ` +
       `${recuperadosPorChave} recuperado(s) por nome exato da chave, ${recoveredGaps.length} por número/série` +
-      (recuperadosPorLote > 0 ? ` (${recuperadosPorLote} delas via lote de envio à SEFAZ — nem chegaram a ser gravadas no banco)` : '') +
+      (detalhesExtra ? ` (${detalhesExtra})` : '') +
       ` · ${naoRecuperados.length} lacuna(s) não encontrada(s) — verificar manualmente no portal TOTVS.`
   })
 
@@ -476,16 +619,17 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
 
   reportStep(6, 'Separação de inconformidades')
 
+  // Contingência/offline entra no pacote final mesmo sem protocolo de
+  // autorização: pra contabilidade, o que importa é a sequência numérica
+  // completa — segurar a nota esperando o protocolo cria um buraco pior do
+  // que mandar ela sem protocolo. Só XML corrompido/ausente (sem dado
+  // nenhum pra exportar) é isolado como inconformidade de verdade.
   const invalid = []
   const finalItems = []
   for (const item of kept) {
     const parsed = item._parsed ?? extractFromBase64(item.xmlContent)
     if (!parsed?.wellFormed) {
       invalid.push({ ...item, motivo: 'XML corrompido ou ausente' })
-    } else if (parsed.contingencia && !parsed.temProtocolo) {
-      // Contingência já autorizada (com protocolo SEFAZ) pode ser enviada normalmente;
-      // só isola a que ainda não recebeu o protocolo de autorização.
-      invalid.push({ ...item, motivo: 'Emissão em contingência sem protocolo de autorização' })
     } else {
       finalItems.push(item)
     }
@@ -496,7 +640,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
     label: 'Separação de inconformidades',
     status: invalid.length > 0 ? 'warn' : 'ok',
     detail: invalid.length > 0
-      ? `${invalid.length} nota(s) isolada(s) por XML corrompido/ausente ou contingência sem protocolo de autorização.`
+      ? `${invalid.length} nota(s) isolada(s) por XML corrompido ou ausente.`
       : 'Nenhuma inconformidade encontrada.'
   })
 

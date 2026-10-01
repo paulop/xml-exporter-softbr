@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import { createRequire } from 'node:module'
 import { store } from '../lib/store.js'
+import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
 
 // archiver é CommonJS; require() evita problemas de interop ESM/CJS
 // que o bundler do processo main do Electron introduz com "import default".
@@ -35,6 +36,27 @@ async function resolveDestinationDir () {
   return result.filePaths[0]
 }
 
+// EBUSY/EPERM/EACCES ao salvar quase sempre é o arquivo de destino aberto em
+// outro programa (Excel, leitor de PDF, etc.) ou sem permissão de escrita no
+// local escolhido — não um bug. Em vez de deixar o erro cru do Node subir
+// pelo IPC ("Error invoking remote method..."), traduz pra uma mensagem que
+// a pessoa consegue agir (fechar o arquivo e tentar de novo).
+async function writeFileSafe (filePath, data, options) {
+  try {
+    await fs.writeFile(filePath, data, options)
+    return { ok: true, path: filePath }
+  } catch (err) {
+    if (['EBUSY', 'EPERM', 'EACCES'].includes(err.code)) {
+      return {
+        ok: false,
+        message: `Não foi possível salvar "${path.basename(filePath)}": o arquivo está aberto em outro programa ` +
+          '(ex.: Excel) ou sem permissão de escrita nesse local. Feche-o e tente novamente.'
+      }
+    }
+    throw err
+  }
+}
+
 export async function downloadOne (item) {
   if (!item?.xmlContent) {
     return { ok: false, message: 'Esta nota não possui XML disponível.' }
@@ -43,9 +65,7 @@ export async function downloadOne (item) {
   const dir = await resolveDestinationDir()
   if (!dir) return { ok: false, message: 'Nenhuma pasta de destino selecionada.' }
 
-  const filePath = path.join(dir, fileNameFor(item))
-  await fs.writeFile(filePath, toBuffer(item.xmlContent))
-  return { ok: true, path: filePath }
+  return writeFileSafe(path.join(dir, fileNameFor(item)), toBuffer(item.xmlContent))
 }
 
 export async function downloadZip (items) {
@@ -60,23 +80,52 @@ export async function downloadZip (items) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   const zipPath = path.join(dir, `NFe-Export-${timestamp}.zip`)
 
-  await new Promise((resolve, reject) => {
-    const output = createWriteStream(zipPath)
-    const archive = new ZipArchive({ zlib: { level: 9 } })
+  try {
+    await new Promise((resolve, reject) => {
+      const output = createWriteStream(zipPath)
+      const archive = new ZipArchive({ zlib: { level: 9 } })
 
-    output.on('close', resolve)
-    output.on('error', reject)
-    archive.on('error', reject)
-    archive.pipe(output)
+      output.on('close', resolve)
+      output.on('error', reject)
+      archive.on('error', reject)
+      archive.pipe(output)
 
-    for (const item of validItems) {
-      archive.append(toBuffer(item.xmlContent), { name: fileNameFor(item) })
+      for (const item of validItems) {
+        archive.append(toBuffer(item.xmlContent), { name: fileNameFor(item) })
+      }
+
+      archive.finalize()
+    })
+  } catch (err) {
+    if (['EBUSY', 'EPERM', 'EACCES'].includes(err.code)) {
+      return {
+        ok: false,
+        message: `Não foi possível salvar "${path.basename(zipPath)}": o destino está aberto em outro programa ` +
+          'ou sem permissão de escrita. Feche-o e tente novamente.'
+      }
     }
-
-    archive.finalize()
-  })
+    throw err
+  }
 
   return { ok: true, path: zipPath, fileCount: validItems.length }
+}
+
+export async function downloadLogXlsx (items) {
+  const validItems = (items ?? []).filter((item) => item.xmlContent)
+  if (validItems.length === 0) {
+    return { ok: false, message: 'Nenhuma nota selecionada possui XML disponível.' }
+  }
+
+  // Mesma pasta de destino do .zip, sem perguntar — e com timestamp no nome
+  // pra nunca colidir com um relatório anterior que ainda esteja aberto.
+  const dir = await resolveDestinationDir()
+  if (!dir) return { ok: false, message: 'Nenhuma pasta de destino selecionada.' }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const filePath = path.join(dir, `Relatorio_XML_SoftBR-${timestamp}.xlsx`)
+
+  const buffer = await buildLogWorkbookBuffer(validItems)
+  return writeFileSafe(filePath, buffer)
 }
 
 export async function downloadReportCsv ({ csv, fileName }) {
@@ -89,8 +138,7 @@ export async function downloadReportCsv ({ csv, fileName }) {
   }
 
   // BOM UTF-8 para o Excel reconhecer acentuação sem precisar configurar a importação.
-  await fs.writeFile(result.filePath, '﻿' + (csv ?? ''), 'utf-8')
-  return { ok: true, path: result.filePath }
+  return writeFileSafe(result.filePath, '﻿' + (csv ?? ''), 'utf-8')
 }
 
 export async function downloadReceiptPdf ({ html, fileName }) {
@@ -116,8 +164,7 @@ export async function downloadReceiptPdf ({ html, fileName }) {
       margins: { top: 0, bottom: 0, left: 0, right: 0 },
       pageSize: { width: 80 / 25.4, height: Math.max(heightPx + 4, 40) / 96 }
     })
-    await fs.writeFile(result.filePath, pdfBuffer)
-    return { ok: true, path: result.filePath }
+    return await writeFileSafe(result.filePath, pdfBuffer)
   } finally {
     win.destroy()
   }
