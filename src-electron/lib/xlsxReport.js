@@ -3,8 +3,18 @@ import { parseXmlDetalhado } from './notaValidation.js'
 
 // exceljs é CommonJS; require() evita problemas de interop ESM/CJS que o
 // bundler do processo main do Electron introduz com "import default".
+// Carregado sob demanda (só dentro de buildLogWorkbookBuffer), não no topo
+// do módulo: um require() no topo roda assim que este arquivo é importado —
+// e este arquivo é importado em cadeia a partir de electron-main.js logo na
+// inicialização do app (main.js -> ipc/index.js -> ipc/export.js -> aqui).
+// Se o pacote estiver faltando no build (já aconteceu), isso travava o app
+// inteiro ao abrir, não só o botão "Baixar Log".
 const require = createRequire(import.meta.url)
-const ExcelJS = require('exceljs')
+let ExcelJS = null
+function getExcelJS () {
+  if (!ExcelJS) ExcelJS = require('exceljs')
+  return ExcelJS
+}
 
 const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } }
 const HEADER_FONT = { color: { argb: 'FFFFFFFF' }, bold: true }
@@ -443,7 +453,7 @@ export async function buildLogWorkbookBuffer (items) {
   const linhas = (items ?? []).map(buildLinha).sort(compararOrdenacao)
   const quebras = buildQuebras(linhas)
 
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (getExcelJS().Workbook)()
   workbook.creator = 'XML Exporter SoftBR'
   workbook.created = new Date()
 

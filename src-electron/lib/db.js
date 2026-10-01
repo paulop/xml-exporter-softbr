@@ -2,8 +2,15 @@ import { createRequire } from 'node:module'
 
 // mssql é CommonJS; require() evita problemas de interop ESM/CJS
 // que o bundler do processo main do Electron introduz com "import default".
+// Carregado sob demanda (não no topo do módulo): um require() no topo roda
+// assim que o app importa este arquivo, na inicialização — se o pacote
+// faltar no build, isso trava o app inteiro ao abrir, não só a consulta.
 const require = createRequire(import.meta.url)
-const sql = require('mssql')
+let sql = null
+function getMssql () {
+  if (!sql) sql = require('mssql')
+  return sql
+}
 
 function buildConfig (connection, password) {
   return {
@@ -22,6 +29,7 @@ function buildConfig (connection, password) {
 }
 
 export async function testConnection (connection, password) {
+  const sql = getMssql()
   const pool = new sql.ConnectionPool(buildConfig(connection, password))
   try {
     await pool.connect()
@@ -35,6 +43,7 @@ export async function testConnection (connection, password) {
 }
 
 export async function runQuery (connection, password, sqlText, params) {
+  const sql = getMssql()
   const pool = new sql.ConnectionPool(buildConfig(connection, password))
   try {
     await pool.connect()

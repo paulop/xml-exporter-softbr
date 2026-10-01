@@ -9,9 +9,15 @@ import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
 // archiver é CommonJS; require() evita problemas de interop ESM/CJS
 // que o bundler do processo main do Electron introduz com "import default".
 // A partir da v8, o pacote expõe classes (ZipArchive) em vez da antiga
-// função fábrica archiver('zip', opts).
+// função fábrica archiver('zip', opts). Carregado sob demanda, não no topo
+// do módulo: um require() no topo roda na inicialização do app — se o
+// pacote faltar no build, travava o app inteiro ao abrir, não só o .zip.
 const require = createRequire(import.meta.url)
-const { ZipArchive } = require('archiver')
+let ZipArchive = null
+function getZipArchive () {
+  if (!ZipArchive) ({ ZipArchive } = require('archiver'))
+  return ZipArchive
+}
 
 function sanitizeFileName (value) {
   return String(value ?? '').replace(/[\\/:*?"<>|]/g, '_')
@@ -83,7 +89,7 @@ export async function downloadZip (items) {
   try {
     await new Promise((resolve, reject) => {
       const output = createWriteStream(zipPath)
-      const archive = new ZipArchive({ zlib: { level: 9 } })
+      const archive = new (getZipArchive())({ zlib: { level: 9 } })
 
       output.on('close', resolve)
       output.on('error', reject)

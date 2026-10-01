@@ -18,6 +18,12 @@ export const useQueryStore = defineStore('query', () => {
   const lastError = ref('')
   const groupFilter = ref(null)
 
+  // Cada clique em "Consultar" gera um token novo. Se o usuário mudar o
+  // período e consultar de novo antes da primeira resposta chegar, a
+  // resposta do clique antigo (de outro período) é descartada ao chegar —
+  // senão ela sobrescreveria/misturaria o resultado do clique mais recente.
+  let requestToken = 0
+
   function setGroupFilter (label, chaves) {
     groupFilter.value = { label, chaves }
   }
@@ -26,27 +32,35 @@ export const useQueryStore = defineStore('query', () => {
     groupFilter.value = null
   }
 
-  function setCurrentMonth () {
-    const now = new Date()
-    dataInicial.value = date.formatDate(date.startOfDate(now, 'month'), 'YYYY-MM-DD')
-    dataFinal.value = date.formatDate(date.endOfDate(now, 'month'), 'YYYY-MM-DD')
-  }
-
-  function setPreviousMonth () {
-    const previous = date.subtractFromDate(new Date(), { months: 1 })
-    dataInicial.value = date.formatDate(date.startOfDate(previous, 'month'), 'YYYY-MM-DD')
-    dataFinal.value = date.formatDate(date.endOfDate(previous, 'month'), 'YYYY-MM-DD')
+  // Desloca o período em `delta` meses a partir do início do período atual
+  // (ex.: -1 vai pro mês anterior, +1 pro seguinte), sempre ajustando pro
+  // mês cheio — é o que os botões "<" / ">" do seletor de período usam.
+  function shiftMonth (delta) {
+    const anchor = date.extractDate(dataInicial.value, 'YYYY-MM-DD')
+    const shifted = date.addToDate(anchor, { months: delta })
+    dataInicial.value = date.formatDate(date.startOfDate(shifted, 'month'), 'YYYY-MM-DD')
+    dataFinal.value = date.formatDate(date.endOfDate(shifted, 'month'), 'YYYY-MM-DD')
   }
 
   async function run () {
+    const token = ++requestToken
+
     querying.value = true
     lastError.value = ''
     groupFilter.value = null
+    // Limpa a tabela imediatamente: o resultado é sempre a consulta do
+    // período atual, nunca um acúmulo do período anterior.
+    rows.value = []
+    selected.value = []
+    count.value = 0
+    totalValor.value = 0
     try {
       const result = await window.api.query.run({
         dataInicial: dataInicial.value,
         dataFinal: dataFinal.value
       })
+      if (token !== requestToken) return [] // resposta de uma consulta já superada
+
       rows.value = result.rows
       count.value = result.count
       totalValor.value = result.totalValor
@@ -54,6 +68,8 @@ export const useQueryStore = defineStore('query', () => {
       selected.value = [...result.rows]
       return result.errors ?? []
     } catch (err) {
+      if (token !== requestToken) return []
+
       lastError.value = err.message ?? String(err)
       rows.value = []
       selected.value = []
@@ -61,7 +77,7 @@ export const useQueryStore = defineStore('query', () => {
       totalValor.value = 0
       throw err
     } finally {
-      querying.value = false
+      if (token === requestToken) querying.value = false
     }
   }
 
@@ -77,8 +93,7 @@ export const useQueryStore = defineStore('query', () => {
     groupFilter,
     setGroupFilter,
     clearGroupFilter,
-    setCurrentMonth,
-    setPreviousMonth,
+    shiftMonth,
     run
   }
 })

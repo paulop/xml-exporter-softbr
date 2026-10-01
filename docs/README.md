@@ -67,3 +67,10 @@ Três abas fixas:
 - **Resumo** — totais lidos/válidos/duplicados, quebras, valores por status, e detalhamento por status/tipo/CNPJ.
 
 Datas são formatadas lendo a string ISO (`dhEmi`) literalmente, sem conversão de fuso horário — importa o horário local gravado pelo PDV, não o fuso da máquina que roda o relatório.
+
+## Resiliência a dependência faltando no pacote
+
+Já aconteceu de uma dependência (`exceljs`) ficar de fora do instalador por um descuido de configuração (`src-electron/package.json` é um manifesto **separado** do `package.json` da raiz — é dali que o processo principal do Electron instala suas próprias dependências; ver [`src-electron/package.json`](../src-electron/package.json)) e o app travar ao abrir com "Cannot find module". Duas camadas de proteção contra isso se repetir:
+
+1. **`require()` sob demanda, não no topo do módulo** — `exceljs` ([xlsxReport.js](../src-electron/lib/xlsxReport.js)), `mssql` ([db.js](../src-electron/lib/db.js)) e `archiver` ([export.js](../src-electron/ipc/export.js)) só são exigidos dentro da função que de fato os usa. Um `require()` no topo do módulo roda assim que o arquivo é importado — e esses arquivos são importados em cadeia a partir de `electron-main.js` logo na inicialização, então uma dependência faltando travava o app inteiro ao abrir, não só a funcionalidade específica.
+2. **Recuperação via auto-update** ([electron-main.js](../src-electron/electron-main.js)) — o carregamento de `ipc/index.js` (que encadeia import de todo o resto do app) agora é um `import()` dinâmico dentro de `app.whenReady()`, envolto em try/catch (um `import` estático que falha trava o processo antes de qualquer código nosso rodar, impossível de capturar). Se isso falhar — ou qualquer outra exceção não tratada escapar antes de uma janela existir —, `attemptRecoveryViaUpdate` busca e instala uma atualização via `electron-updater` direto (sem depender do nosso `ipc/updater.js`, que também pode estar na cadeia quebrada) antes de desistir com uma mensagem de erro clara, em vez de deixar só o diálogo nativo de crash do Electron.

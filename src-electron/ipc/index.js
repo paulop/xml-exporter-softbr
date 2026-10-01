@@ -5,8 +5,11 @@ import * as exportIpc from './export.js'
 import * as settings from './settings.js'
 import * as updater from './updater.js'
 import * as validation from './validation.js'
+import { migrateLegacyConfigIfEmpty } from '../lib/store.js'
 
 export function registerIpcHandlers (mainWindow) {
+  migrateLegacyConfigIfEmpty()
+
   ipcMain.handle('connections:list', () => connections.listConnections())
   ipcMain.handle('connections:save', (_e, payload) => connections.saveConnection(payload))
   ipcMain.handle('connections:delete', (_e, id) => connections.deleteConnection(id))

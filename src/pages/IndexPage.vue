@@ -16,17 +16,20 @@
         </div>
       </div>
 
-      <div class="col-6 col-md-2">
-        <q-input v-model="queryStore.dataInicial" type="date" label="Data inicial" dense />
-      </div>
-
-      <div class="col-6 col-md-2">
-        <q-input v-model="queryStore.dataFinal" type="date" label="Data final" dense />
-      </div>
-
       <div class="col-12 col-md-auto">
-        <q-btn flat dense label="Mês atual" @click="queryStore.setCurrentMonth" />
-        <q-btn flat dense label="Mês anterior" @click="queryStore.setPreviousMonth" />
+        <div class="row items-center no-wrap date-range-picker">
+          <q-btn flat dense round icon="chevron_left" @click="queryStore.shiftMonth(-1)">
+            <q-tooltip>Mês anterior</q-tooltip>
+          </q-btn>
+          <q-btn flat dense no-caps :label="rangeLabel" class="date-range-label">
+            <q-popup-proxy anchor="bottom left" self="top left" transition-show="scale" transition-hide="scale">
+              <q-date v-model="dateRange" range mask="YYYY-MM-DD" today-btn minimal />
+            </q-popup-proxy>
+          </q-btn>
+          <q-btn flat dense round icon="chevron_right" @click="queryStore.shiftMonth(1)">
+            <q-tooltip>Próximo mês</q-tooltip>
+          </q-btn>
+        </div>
       </div>
 
       <div class="col-12 col-md-auto">
@@ -35,7 +38,7 @@
           label="Consultar"
           icon="search"
           :loading="queryStore.querying"
-          :disable="connectionsStore.connections.length === 0"
+          :disable="connectionsStore.connections.length === 0 || queryStore.querying"
           @click="runQuery"
         />
       </div>
@@ -223,7 +226,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useQuasar } from 'quasar'
+import { useQuasar, date } from 'quasar'
 import { useConnectionsStore } from '@/stores/connections-store'
 import { useQueryStore } from '@/stores/query-store'
 import { toPlain } from '@/utils/ipc'
@@ -258,6 +261,28 @@ const columns = [
   { name: 'xmlStatus', label: 'XML status', field: 'xmlStatus', align: 'left' },
   { name: 'acoes', label: 'Ações', field: 'acoes', align: 'center' }
 ]
+
+function formatRangeDate (iso) {
+  if (!iso) return ''
+  return date.formatDate(date.extractDate(iso, 'YYYY-MM-DD'), 'DD/MM/YYYY')
+}
+
+const rangeLabel = computed(() => `${formatRangeDate(queryStore.dataInicial)} - ${formatRangeDate(queryStore.dataFinal)}`)
+
+const dateRange = computed({
+  get: () => ({ from: queryStore.dataInicial, to: queryStore.dataFinal }),
+  set: (val) => {
+    if (!val) return
+    // seleção de um único dia: QDate manda a data em vez de {from, to}
+    if (typeof val === 'string') {
+      queryStore.dataInicial = val
+      queryStore.dataFinal = val
+    } else {
+      queryStore.dataInicial = val.from
+      queryStore.dataFinal = val.to
+    }
+  }
+})
 
 const searchText = ref('')
 const filters = reactive({
@@ -432,6 +457,16 @@ onMounted(async () => {
   max-width: 100%;
   overflow-x: auto;
   white-space: nowrap;
+}
+
+.date-range-picker {
+  background: #f0f0f0;
+  border-radius: 8px;
+  padding: 0 2px;
+}
+
+.date-range-label {
+  min-width: 170px;
 }
 
 .filter-bar {
