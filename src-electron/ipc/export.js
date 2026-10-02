@@ -5,6 +5,8 @@ import { createWriteStream } from 'node:fs'
 import { createRequire } from 'node:module'
 import { store } from '../lib/store.js'
 import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
+import { dedupeByChave } from '../lib/notaValidation.js'
+import { collectNfeFromFolders } from '../lib/nfeCopyFolders.js'
 
 // archiver é CommonJS; require() evita problemas de interop ESM/CJS
 // que o bundler do processo main do Electron introduz com "import default".
@@ -74,8 +76,25 @@ export async function downloadOne (item) {
   return writeFileSafe(path.join(dir, fileNameFor(item)), toBuffer(item.xmlContent))
 }
 
-export async function downloadZip (items) {
-  const validItems = (items ?? []).filter((item) => item.xmlContent)
+// Pastas de NF-e avulsas (configuradas à parte de `searchFolders`): não
+// passam pela busca em cascata nem precisam casar com nenhuma linha do
+// banco — é só achar, dentro do período escolhido, os XMLs que já existem e
+// somar ao lote selecionado. Em caso de chave repetida, a nota já
+// selecionada no banco (primeira na lista) tem prioridade no dedupe.
+async function withNfeFolderExtras (validItems, period) {
+  const folders = store.get('nfeCopyFolders')
+  if (!folders || folders.length === 0) return validItems
+
+  const extras = await collectNfeFromFolders(folders, period ?? {})
+  if (extras.length === 0) return validItems
+
+  const { kept } = dedupeByChave([...validItems, ...extras])
+  return kept
+}
+
+export async function downloadZip (items, period) {
+  const selectedItems = (items ?? []).filter((item) => item.xmlContent)
+  const validItems = await withNfeFolderExtras(selectedItems, period)
   if (validItems.length === 0) {
     return { ok: false, message: 'Nenhuma nota selecionada possui XML disponível.' }
   }
@@ -116,8 +135,9 @@ export async function downloadZip (items) {
   return { ok: true, path: zipPath, fileCount: validItems.length }
 }
 
-export async function downloadLogXlsx (items) {
-  const validItems = (items ?? []).filter((item) => item.xmlContent)
+export async function downloadLogXlsx (items, period) {
+  const selectedItems = (items ?? []).filter((item) => item.xmlContent)
+  const validItems = await withNfeFolderExtras(selectedItems, period)
   if (validItems.length === 0) {
     return { ok: false, message: 'Nenhuma nota selecionada possui XML disponível.' }
   }

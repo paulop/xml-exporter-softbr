@@ -39,6 +39,32 @@ export function removeSearchFolder (folderPath) {
   return folders
 }
 
+// Pastas de NF-e avulsas: separado de `searchFolders` de propósito — essas
+// não entram na busca em cascata de lacunas, só são varridas na hora do
+// ZIP/log pra copiar direto o que tiver dentro do período escolhido.
+export function getNfeCopyFolders () {
+  return store.get('nfeCopyFolders')
+}
+
+export async function addNfeCopyFolder () {
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+  if (result.canceled || result.filePaths.length === 0) {
+    return store.get('nfeCopyFolders')
+  }
+  const folders = store.get('nfeCopyFolders')
+  const chosen = result.filePaths[0]
+  if (!folders.includes(chosen)) {
+    store.set('nfeCopyFolders', [...folders, chosen])
+  }
+  return store.get('nfeCopyFolders')
+}
+
+export function removeNfeCopyFolder (folderPath) {
+  const folders = store.get('nfeCopyFolders').filter((f) => f !== folderPath)
+  store.set('nfeCopyFolders', folders)
+  return folders
+}
+
 export function openPortal () {
   shell.openExternal(TOTVS_PORTAL_URL)
 }

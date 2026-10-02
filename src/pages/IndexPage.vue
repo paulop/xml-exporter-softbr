@@ -197,7 +197,6 @@
         icon="description"
         label="Baixar Log"
         :loading="downloadingLog"
-        :disable="queryStore.selected.length === 0"
         @click="downloadLog"
       />
       <q-btn
@@ -205,7 +204,6 @@
         icon="folder_zip"
         label="Baixar ZIP"
         :loading="downloadingZip"
-        :disable="queryStore.selected.length === 0"
         @click="downloadZip"
       />
     </div>
@@ -398,7 +396,8 @@ async function downloadZip () {
   downloadingZip.value = true
   exportMessage.value = ''
   try {
-    const result = await window.api.export.downloadZip(toPlain(queryStore.selected))
+    const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
+    const result = await window.api.export.downloadZip(toPlain(queryStore.selected), period)
     exportOk.value = result.ok
     exportMessage.value = result.ok
       ? `Arquivo salvo em ${result.path} (${result.fileCount} XML(s))`
@@ -415,7 +414,8 @@ async function downloadLog () {
   downloadingLog.value = true
   exportMessage.value = ''
   try {
-    const result = await window.api.export.downloadLogXlsx(toPlain(queryStore.selected))
+    const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
+    const result = await window.api.export.downloadLogXlsx(toPlain(queryStore.selected), period)
     exportOk.value = result.ok
     exportMessage.value = result.ok
       ? `Log salvo em ${result.path}`

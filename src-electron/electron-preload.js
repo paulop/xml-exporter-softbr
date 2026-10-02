@@ -82,6 +82,9 @@ contextBridge.exposeInMainWorld('api', {
     getSearchFolders: invoke('settings:getSearchFolders'),
     addSearchFolder: invoke('settings:addSearchFolder'),
     removeSearchFolder: invoke('settings:removeSearchFolder'),
+    getNfeCopyFolders: invoke('settings:getNfeCopyFolders'),
+    addNfeCopyFolder: invoke('settings:addNfeCopyFolder'),
+    removeNfeCopyFolder: invoke('settings:removeNfeCopyFolder'),
     openPortal: invoke('settings:openPortal')
   },
   validation: {

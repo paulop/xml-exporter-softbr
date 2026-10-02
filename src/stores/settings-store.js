@@ -4,6 +4,7 @@ import { ref } from 'vue'
 export const useSettingsStore = defineStore('settings', () => {
   const destinationFolder = ref('')
   const searchFolders = ref([])
+  const nfeCopyFolders = ref([])
   const sql = ref('')
   const defaultSql = ref('')
   const appVersion = ref('')
@@ -11,6 +12,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function load () {
     destinationFolder.value = (await window.api.settings.getDestinationFolder()) ?? ''
     searchFolders.value = (await window.api.settings.getSearchFolders()) ?? []
+    nfeCopyFolders.value = (await window.api.settings.getNfeCopyFolders()) ?? []
     sql.value = await window.api.query.getSql()
     defaultSql.value = await window.api.query.getDefaultSql()
     appVersion.value = await window.api.app.getVersion()
@@ -31,6 +33,16 @@ export const useSettingsStore = defineStore('settings', () => {
     return searchFolders.value
   }
 
+  async function addNfeCopyFolder () {
+    nfeCopyFolders.value = (await window.api.settings.addNfeCopyFolder()) ?? []
+    return nfeCopyFolders.value
+  }
+
+  async function removeNfeCopyFolder (folderPath) {
+    nfeCopyFolders.value = (await window.api.settings.removeNfeCopyFolder(folderPath)) ?? []
+    return nfeCopyFolders.value
+  }
+
   function openPortal () {
     window.api.settings.openPortal()
   }
@@ -46,6 +58,7 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     destinationFolder,
     searchFolders,
+    nfeCopyFolders,
     sql,
     defaultSql,
     appVersion,
@@ -53,6 +66,8 @@ export const useSettingsStore = defineStore('settings', () => {
     chooseDestinationFolder,
     addSearchFolder,
     removeSearchFolder,
+    addNfeCopyFolder,
+    removeNfeCopyFolder,
     openPortal,
     saveSql,
     resetSql

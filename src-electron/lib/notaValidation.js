@@ -206,18 +206,24 @@ export function parseXmlDetalhado (xmlString) {
 // o nome do arquivo normalmente contém a própria chave, dá pra decodificar
 // tudo isso (inclusive número/série, usados na busca de lacunas) direto do
 // nome — sem abrir nem parsear o conteúdo do arquivo.
-function extractChaveFromFileName (fileName) {
+export function extractChaveFromFileName (fileName) {
   const match = fileName.match(/\d{44}/)
   return match ? match[0] : null
 }
 
-function decodeChave (chave) {
+export function decodeChave (chave) {
   return {
     cnpj: chave.slice(6, 20),
     // posições 21-22 são o "mod" (modelo do documento fiscal) — vêm antes da série.
     serie: Number(chave.slice(22, 25)),
     numero: Number(chave.slice(25, 34))
   }
+}
+
+// AAMM (ano/mês de emissão, 2 dígitos cada) vem logo após o cUF — dá pra
+// filtrar candidatos por mês sem abrir o arquivo, igual ao resto do nome.
+export function decodeAnoMesFromChave (chave) {
+  return { ano: Number(chave.slice(2, 4)), mes: Number(chave.slice(4, 6)) }
 }
 
 // Nota que nunca chegou a existir no banco (nem a chave é conhecida), mas o
@@ -245,7 +251,7 @@ function extractInutilizacaoFromFileName (fileName) {
   return { serie: Number(match[1]), nNFIni: Number(match[2]), nNFFin: Number(match[3]) }
 }
 
-async function listXmlFilesRecursive (dir) {
+export async function listXmlFilesRecursive (dir) {
   const found = []
   let entries
   try {

@@ -22,7 +22,11 @@ const schema = {
   },
   searchFolders: {
     type: 'array',
-    default: ['C:\\Custodia', 'Plugin Fiscal\\kcf\\XML']
+    default: ['C:\\Custodia']
+  },
+  nfeCopyFolders: {
+    type: 'array',
+    default: []
   },
   appSettings: {
     type: 'object',

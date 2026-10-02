@@ -24,20 +24,23 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('query:resetSql', () => query.resetSql())
 
   ipcMain.handle('export:downloadOne', (_e, item) => exportIpc.downloadOne(item))
-  ipcMain.handle('export:downloadZip', (_e, items) => exportIpc.downloadZip(items))
+  ipcMain.handle('export:downloadZip', (_e, items, period) => exportIpc.downloadZip(items, period))
   ipcMain.handle('export:downloadReceiptPdf', (_e, payload) => exportIpc.downloadReceiptPdf(payload))
   ipcMain.handle('export:downloadReportCsv', (_e, payload) => exportIpc.downloadReportCsv(payload))
-  ipcMain.handle('export:downloadLogXlsx', (_e, items) => exportIpc.downloadLogXlsx(items))
+  ipcMain.handle('export:downloadLogXlsx', (_e, items, period) => exportIpc.downloadLogXlsx(items, period))
 
   ipcMain.handle('settings:getDestinationFolder', () => settings.getDestinationFolder())
   ipcMain.handle('settings:setDestinationFolder', () => settings.setDestinationFolder())
   ipcMain.handle('settings:getSearchFolders', () => settings.getSearchFolders())
   ipcMain.handle('settings:addSearchFolder', () => settings.addSearchFolder())
   ipcMain.handle('settings:removeSearchFolder', (_e, folderPath) => settings.removeSearchFolder(folderPath))
+  ipcMain.handle('settings:getNfeCopyFolders', () => settings.getNfeCopyFolders())
+  ipcMain.handle('settings:addNfeCopyFolder', () => settings.addNfeCopyFolder())
+  ipcMain.handle('settings:removeNfeCopyFolder', (_e, folderPath) => settings.removeNfeCopyFolder(folderPath))
   ipcMain.handle('settings:openPortal', () => settings.openPortal())
 
   validation.init(mainWindow)
-  ipcMain.handle('validation:run', (_e, rows) => validation.run(rows))
+  ipcMain.handle('validation:run', (_e, rows, period) => validation.run(rows, period))
   ipcMain.handle('validation:cancel', () => validation.cancel())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())

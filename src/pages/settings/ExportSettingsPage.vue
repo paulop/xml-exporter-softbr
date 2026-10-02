@@ -24,14 +24,10 @@
 
     <q-separator class="q-my-lg" />
 
-    <div class="text-subtitle2 q-mb-sm">Pastas de busca de XMLs faltantes</div>
+    <div class="text-subtitle2 q-mb-sm">Pastas de NFC faltantes</div>
     <div class="text-caption text-grey q-mb-sm">
       Usadas na busca em cascata para recuperar notas ausentes ou com sequência quebrada
-      (ex.: pasta de custódia do caixa, pasta do Plugin Fiscal). A busca percorre
-      recursivamente todas as subpastas dentro de cada pasta cadastrada. A ordem da
-      lista define a prioridade de busca. O app identifica as notas pelo nome do
-      arquivo (a própria chave de acesso), então não precisa abrir nem ler o
-      conteúdo de arquivos que não interessam — funciona mesmo com pastas grandes.
+      A busca percorre recursivamente todas as subpastas dentro de cada pasta cadastrada.
     </div>
 
     <q-list bordered separator class="rounded-borders">
@@ -58,6 +54,36 @@
 
     <q-separator class="q-my-lg" />
 
+    <div class="text-subtitle2 q-mb-sm">Pastas de NF-e avulsas</div>
+    <div class="text-caption text-grey q-mb-sm">
+      Separado da busca de NFC: os NF-e são copiados direto para o ZIP quando a data de emissão cair
+      dentro do período consultado.
+    </div>
+
+    <q-list bordered separator class="rounded-borders">
+      <q-item v-for="folder in settingsStore.nfeCopyFolders" :key="folder">
+        <q-item-section avatar><q-icon name="folder" /></q-item-section>
+        <q-item-section>{{ folder }}</q-item-section>
+        <q-item-section side>
+          <q-btn flat dense round icon="close" @click="removeNfeFolder(folder)" />
+        </q-item-section>
+      </q-item>
+      <q-item v-if="settingsStore.nfeCopyFolders.length === 0">
+        <q-item-section class="text-grey">Nenhuma pasta configurada.</q-item-section>
+      </q-item>
+    </q-list>
+
+    <q-btn
+      flat
+      dense
+      icon="create_new_folder"
+      label="Adicionar pasta"
+      class="q-mt-sm"
+      @click="addNfeFolder"
+    />
+
+    <q-separator class="q-my-lg" />
+
     <div class="text-h6 q-mb-md">Sobre</div>
     <div class="text-body2">Versão instalada: {{ settingsStore.appVersion }}</div>
   </q-page>
@@ -79,6 +105,14 @@ async function addFolder () {
 
 async function removeFolder (folder) {
   await settingsStore.removeSearchFolder(folder)
+}
+
+async function addNfeFolder () {
+  await settingsStore.addNfeCopyFolder()
+}
+
+async function removeNfeFolder (folder) {
+  await settingsStore.removeNfeCopyFolder(folder)
 }
 
 onMounted(() => settingsStore.load())

@@ -155,6 +155,10 @@ function buildLinha (item) {
     frete: parsedXml?.frete ?? null,
     tipoEmissao: toUpperOrEmpty(item.tpEmissao),
     ambiente: parsedXml?.ambiente === 2 ? 'Homologação' : (parsedXml?.ambiente === 1 ? 'Produção' : ''),
+    // Conexão (caixa/computador) pra nota vinda do banco; pasta de apoio pra
+    // nota de NF-e avulsa ou recuperada via busca em cascata — é o que
+    // identifica, linha a linha, de onde cada XML do lote realmente veio.
+    origem: item.conexao ?? item.origem ?? 'Banco de dados',
     nomeArquivo: chave ? `${sanitizeFileName(chave)}.xml` : '',
     observacoes: item.metodoRecuperacao ?? '',
     _wellFormed: !!parsedXml
@@ -274,7 +278,8 @@ function addSheetXmls (workbook, linhas) {
     'CNPJ Emitente', 'Razão Social Emitente', 'Tipo Documento', 'Modelo', 'Número', 'Série',
     'Data Emissão', 'Hora Emissão', 'Chave de Acesso', 'Protocolo', 'Status', 'Código Status',
     'Motivo', 'CPF/CNPJ Destinatário', 'Nome Destinatário', 'Valor Total', 'Valor Produtos',
-    'Valor ICMS', 'Base ICMS', 'Desconto', 'Frete', 'Tipo Emissão', 'Ambiente', 'Nome do Arquivo', 'Observações'
+    'Valor ICMS', 'Base ICMS', 'Desconto', 'Frete', 'Tipo Emissão', 'Ambiente', 'Origem',
+    'Nome do Arquivo', 'Observações'
   ]
   styleHeaderRow(sheet, headers)
 
@@ -298,7 +303,7 @@ function addSheetXmls (workbook, linhas) {
       linha.chave, linha.protocolo, linha.status, linha.cStat, linha.motivo,
       linha.cpfCnpjDestinatario, linha.nomeDestinatario, linha.valorTotal, linha.valorProdutos,
       linha.valorIcms, linha.baseIcms, linha.desconto, linha.frete, linha.tipoEmissao,
-      linha.ambiente, linha.nomeArquivo, linha.observacoes
+      linha.ambiente, linha.origem, linha.nomeArquivo, linha.observacoes
     ]
     values.forEach((value, i) => {
       const col = i + 1
@@ -380,6 +385,7 @@ function addSheetResumo (workbook, linhas, quebras) {
   const porStatus = new Map()
   const porTipo = new Map()
   const porCnpj = new Map()
+  const porOrigem = new Map()
   const series = new Set()
   let valorAutorizado = 0
   let valorCancelado = 0
@@ -389,6 +395,7 @@ function addSheetResumo (workbook, linhas, quebras) {
     porStatus.set(statusLabel, (porStatus.get(statusLabel) ?? 0) + 1)
     porTipo.set(linha.tipoDocumento || 'Não identificado', (porTipo.get(linha.tipoDocumento || 'Não identificado') ?? 0) + 1)
     porCnpj.set(linha.cnpjEmitente || 'Não identificado', (porCnpj.get(linha.cnpjEmitente || 'Não identificado') ?? 0) + 1)
+    porOrigem.set(linha.origem || 'Não identificado', (porOrigem.get(linha.origem || 'Não identificado') ?? 0) + 1)
     if (linha.serie !== null) series.add(`${linha.cnpjEmitente}|${linha.serie}`)
 
     const kind = statusKind(linha.status)
@@ -435,6 +442,10 @@ function addSheetResumo (workbook, linhas, quebras) {
   r++
   subTitulo('Total por CNPJ emitente')
   for (const [cnpj, qtd] of porCnpj) metric(cnpj, qtd)
+
+  r++
+  subTitulo('Total por origem')
+  for (const [origem, qtd] of porOrigem) metric(origem, qtd)
 
   r++
   const obsRow = sheet.getRow(r++)

@@ -21,7 +21,7 @@
           icon="fact_check"
           label="Executar validação"
           :loading="running"
-          :disable="running || queryStore.rows.length === 0"
+          :disable="running"
           @click="run"
         />
       </div>
@@ -165,7 +165,7 @@
 
         <q-separator class="q-my-md" />
 
-        <div class="text-subtitle2 q-mb-sm">Relatório de quebras por série</div>
+        <div class="text-subtitle2 q-mb-sm">Relatório de sequência de NFC-e</div>
         <q-markup-table dense flat bordered>
           <thead>
             <tr>
@@ -204,6 +204,41 @@
             @click="downloadCsv"
           />
         </div>
+
+        <template v-if="nfeFolderValidation.length > 0">
+          <q-separator class="q-my-md" />
+
+          <div class="text-subtitle2 q-mb-sm">
+            Relatório de sequência de NF-e
+          </div>
+          <q-markup-table dense flat bordered>
+            <thead>
+              <tr>
+                <th>CNPJ</th>
+                <th>Série</th>
+                <th>Nº inicial</th>
+                <th>Nº final</th>
+                <th>Qtde esperada</th>
+                <th>Qtde encontrada</th>
+                <th>Lacunas</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in nfeFolderValidation" :key="i">
+                <td>{{ r.cnpj }}</td>
+                <td>{{ r.serie }}</td>
+                <td>{{ r.numeroInicial }}</td>
+                <td>{{ r.numeroFinal }}</td>
+                <td>{{ r.quantidadeEsperada }}</td>
+                <td>{{ r.quantidadeEncontrada }}</td>
+                <td>
+                  <q-badge v-if="r.lacunas.length === 0" color="positive">Sequência completa</q-badge>
+                  <span v-else class="text-negative">{{ r.lacunas.join(', ') }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </q-markup-table>
+        </template>
       </q-card-section>
     </template>
   </q-card>
@@ -229,6 +264,7 @@ const duplicates = ref([])
 const invalid = ref([])
 const naoRecuperados = ref([])
 const reportRows = ref([])
+const nfeFolderValidation = ref([])
 const grupos = ref({ normal: [], offline: [], autorizada: [], cancelada: [], inutilizada: [], xmlInvalido: [] })
 
 const grupoChips = computed(() => [
@@ -282,7 +318,8 @@ async function run () {
   })
 
   try {
-    const result = await window.api.validation.run(toPlain(queryStore.rows))
+    const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
+    const result = await window.api.validation.run(toPlain(queryStore.rows), period)
 
     if (result.cancelled) {
       $q.notify({ type: 'warning', message: 'Validação cancelada.' })
@@ -296,6 +333,7 @@ async function run () {
     invalid.value = result.invalid
     naoRecuperados.value = result.naoRecuperados
     reportRows.value = result.reportRows
+    nfeFolderValidation.value = result.nfeFolderValidation ?? []
     queryStore.clearGroupFilter()
 
     if (result.recovered.length > 0) {
