@@ -1,6 +1,6 @@
 {
   "name": "xml-exporter-softbr",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Exportador de XML de notas fiscais para contabilidade",
   "productName": "Gerador de Arquivos XML - SoftBR",
   "author": "Paulo Alexandre <paulo@pp.eti.br>",

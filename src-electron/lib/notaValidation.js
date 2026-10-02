@@ -8,7 +8,16 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
   removeNSPrefix: true,
-  trimValues: true
+  trimValues: true,
+  // Sem isso, o fast-xml-parser converte texto puramente numérico (chave de
+  // acesso com 44 dígitos, CNPJ) em Number automaticamente — e tanto chave
+  // quanto CNPJ estouram a precisão seguro de um double (~15-17 dígitos),
+  // virando notação científica ("5.02609123345e+43") ou perdendo zero à
+  // esquerda do CNPJ. O código já chama Number(...) explicitamente em todo
+  // campo que precisa ser numérico (nNF, serie, vNF, tpEmis...), então manter
+  // tudo como string aqui não quebra nada — só evita essa conversão silenciosa
+  // nos campos que precisam ficar texto.
+  parseTagValue: false
 })
 
 function deepFind (node, tagName) {
