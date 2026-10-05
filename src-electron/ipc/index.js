@@ -24,15 +24,25 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('query:resetSql', () => query.resetSql())
 
   ipcMain.handle('export:downloadOne', (_e, item) => exportIpc.downloadOne(item))
-  ipcMain.handle('export:downloadZip', (_e, items, period) => exportIpc.downloadZip(items, period))
+  ipcMain.handle('export:downloadZip', (e, items, period) =>
+    exportIpc.downloadZip(items, period, (message) => e.sender.send('export:progress', message)))
+  ipcMain.handle('export:sendZip', (e, items, period, emails) =>
+    exportIpc.sendZip(
+      items,
+      period,
+      emails,
+      (message) => e.sender.send('export:progress', message),
+      (sent, total) => e.sender.send('export:uploadProgress', { sent, total })
+    ))
   ipcMain.handle('export:downloadReceiptPdf', (_e, payload) => exportIpc.downloadReceiptPdf(payload))
   ipcMain.handle('export:downloadReportCsv', (_e, payload) => exportIpc.downloadReportCsv(payload))
-  ipcMain.handle('export:downloadLogXlsx', (_e, items, period) => exportIpc.downloadLogXlsx(items, period))
 
   ipcMain.handle('settings:getDestinationFolder', () => settings.getDestinationFolder())
   ipcMain.handle('settings:setDestinationFolder', () => settings.setDestinationFolder())
-  ipcMain.handle('settings:getZipPartSizeMb', () => settings.getZipPartSizeMb())
-  ipcMain.handle('settings:setZipPartSizeMb', (_e, value) => settings.setZipPartSizeMb(value))
+  ipcMain.handle('settings:getCompany', () => settings.getCompany())
+  ipcMain.handle('settings:setCompany', (_e, payload) => settings.setCompany(payload))
+  ipcMain.handle('settings:getAccountant', () => settings.getAccountant())
+  ipcMain.handle('settings:setAccountant', (_e, payload) => settings.setAccountant(payload))
   ipcMain.handle('settings:getSearchFolders', () => settings.getSearchFolders())
   ipcMain.handle('settings:addSearchFolder', () => settings.addSearchFolder())
   ipcMain.handle('settings:removeSearchFolder', (_e, folderPath) => settings.removeSearchFolder(folderPath))

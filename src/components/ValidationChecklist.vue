@@ -19,7 +19,7 @@
           color="primary"
           outline
           icon="fact_check"
-          label="Executar validação"
+          label="Validar / Auditar"
           :loading="running"
           :disable="running"
           @click="run"
@@ -310,6 +310,9 @@ function statusColor (status) {
 
 async function run () {
   running.value = true
+  queryStore.validating = true
+  queryStore.validated = false
+  queryStore.uploaded = false
   cancelling.value = false
   progress.value = { step: 0, totalSteps: 7 }
 
@@ -343,11 +346,13 @@ async function run () {
     }
 
     queryStore.selected = result.finalItems
+    queryStore.validated = true
   } catch (err) {
     $q.notify({ type: 'negative', message: err.message ?? String(err) })
   } finally {
     unsubscribe()
     running.value = false
+    queryStore.validating = false
     cancelling.value = false
     progress.value = null
   }

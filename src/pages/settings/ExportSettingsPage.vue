@@ -6,45 +6,27 @@
     </div>
 
     <div class="text-subtitle2 q-mb-sm">Destino de exportação</div>
-    <div class="row q-col-gutter-sm">
-      <div class="col">
-        <q-input
-          :model-value="settingsStore.destinationFolder || 'Nenhuma pasta selecionada'"
-          readonly
-          filled
-          dense
-          label="Pasta de destino"
-        >
-          <template #append>
-            <q-btn flat dense icon="folder_open" label="Escolher pasta" @click="choose" />
-          </template>
-        </q-input>
-      </div>
-      <div class="col-auto" style="width: 180px">
-        <q-input
-          v-model.number="zipPartSize"
-          type="number"
-          min="1"
-          filled
-          dense
-          debounce="500"
-          label="Tamanho máx. do ZIP"
-          suffix="MB"
-          :rules="[(v) => Number(v) >= 1 || 'Mínimo 1 MB']"
-          hide-bottom-space
-          @update:model-value="saveZipPartSize"
-          @blur="zipPartSize = settingsStore.zipPartSizeMb"
-        />
-      </div>
-    </div>
+    <q-input
+      :model-value="settingsStore.destinationFolder || 'Nenhuma pasta selecionada'"
+      :title="settingsStore.destinationFolder"
+      readonly
+      filled
+      dense
+      label="Pasta de destino"
+      style="width: 420px; max-width: 100%"
+    >
+      <template #append>
+        <q-btn flat dense round icon="folder_open" aria-label="Escolher pasta" @click="choose">
+          <q-tooltip>Escolher pasta</q-tooltip>
+        </q-btn>
+      </template>
+    </q-input>
 
     <div class="text-caption text-grey q-mt-sm">
       Se nenhuma pasta for configurada, o app perguntará onde salvar a cada exportação.
-      Exportações maiores que o tamanho máximo são divididas em vários .zip (parte1, parte2...),
-      cada um abrindo de forma independente.
     </div>
 
-    <q-separator class="q-my-lg" />
+    <q-separator class="q-my-md" />
 
     <div class="text-subtitle2 q-mb-sm">Pastas de NFC faltantes</div>
     <div class="text-caption text-grey q-mb-sm">
@@ -52,7 +34,7 @@
       A busca percorre recursivamente todas as subpastas dentro de cada pasta cadastrada.
     </div>
 
-    <q-list bordered separator class="rounded-borders">
+    <q-list dense bordered separator class="rounded-borders" style="max-width: 420px">
       <q-item v-for="folder in settingsStore.searchFolders" :key="folder">
         <q-item-section avatar><q-icon name="folder" /></q-item-section>
         <q-item-section>{{ folder }}</q-item-section>
@@ -74,7 +56,7 @@
       @click="addFolder"
     />
 
-    <q-separator class="q-my-lg" />
+    <q-separator class="q-my-md" />
 
     <div class="text-subtitle2 q-mb-sm">Pastas de NF-e avulsas</div>
     <div class="text-caption text-grey q-mb-sm">
@@ -82,7 +64,7 @@
       dentro do período consultado.
     </div>
 
-    <q-list bordered separator class="rounded-borders">
+    <q-list dense bordered separator class="rounded-borders" style="max-width: 420px">
       <q-item v-for="folder in settingsStore.nfeCopyFolders" :key="folder">
         <q-item-section avatar><q-icon name="folder" /></q-item-section>
         <q-item-section>{{ folder }}</q-item-section>
@@ -104,7 +86,7 @@
       @click="addNfeFolder"
     />
 
-    <q-separator class="q-my-lg" />
+    <q-separator class="q-my-md" />
 
     <div class="text-h6 q-mb-md">Sobre</div>
     <div class="text-body2">Versão instalada: {{ settingsStore.appVersion }}</div>
@@ -112,22 +94,13 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings-store'
 
 const settingsStore = useSettingsStore()
 
 async function choose () {
   await settingsStore.chooseDestinationFolder()
-}
-
-// Valor digitado fica local até ser salvo; valores inválidos (vazio, < 1)
-// não são gravados e o campo volta pro valor salvo ao perder o foco.
-const zipPartSize = ref(settingsStore.zipPartSizeMb)
-watch(() => settingsStore.zipPartSizeMb, (value) => { zipPartSize.value = value })
-
-async function saveZipPartSize (value) {
-  if (Number(value) >= 1) await settingsStore.saveZipPartSizeMb(value)
 }
 
 async function addFolder () {

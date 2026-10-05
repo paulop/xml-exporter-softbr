@@ -17,6 +17,13 @@ export const useQueryStore = defineStore('query', () => {
   const querying = ref(false)
   const lastError = ref('')
   const groupFilter = ref(null)
+  // O .zip só pode ser baixado depois de rodar "Validar / Auditar" sobre o
+  // resultado da consulta atual; uma nova consulta exige validar de novo.
+  const validating = ref(false)
+  const validated = ref(false)
+  // O envio pra contabilidade acontece uma vez por validação: depois de
+  // enviado, só libera de novo ao validar outra vez.
+  const uploaded = ref(false)
 
   // Cada clique em "Consultar" gera um token novo. Se o usuário mudar o
   // período e consultar de novo antes da primeira resposta chegar, a
@@ -48,6 +55,8 @@ export const useQueryStore = defineStore('query', () => {
     querying.value = true
     lastError.value = ''
     groupFilter.value = null
+    validated.value = false
+    uploaded.value = false
     // Limpa a tabela imediatamente: o resultado é sempre a consulta do
     // período atual, nunca um acúmulo do período anterior.
     rows.value = []
@@ -91,6 +100,9 @@ export const useQueryStore = defineStore('query', () => {
     querying,
     lastError,
     groupFilter,
+    validating,
+    validated,
+    uploaded,
     setGroupFilter,
     clearGroupFilter,
     shiftMonth,

@@ -74,13 +74,17 @@ contextBridge.exposeInMainWorld('api', {
     downloadZip: invoke('export:downloadZip'),
     downloadReceiptPdf: invoke('export:downloadReceiptPdf'),
     downloadReportCsv: invoke('export:downloadReportCsv'),
-    downloadLogXlsx: invoke('export:downloadLogXlsx')
+    sendZip: invoke('export:sendZip'),
+    onProgress: onEvent('export:progress'),
+    onUploadProgress: onEvent('export:uploadProgress')
   },
   settings: {
     getDestinationFolder: invoke('settings:getDestinationFolder'),
     setDestinationFolder: invoke('settings:setDestinationFolder'),
-    getZipPartSizeMb: invoke('settings:getZipPartSizeMb'),
-    setZipPartSizeMb: invoke('settings:setZipPartSizeMb'),
+    getCompany: invoke('settings:getCompany'),
+    setCompany: invoke('settings:setCompany'),
+    getAccountant: invoke('settings:getAccountant'),
+    setAccountant: invoke('settings:setAccountant'),
     getSearchFolders: invoke('settings:getSearchFolders'),
     addSearchFolder: invoke('settings:addSearchFolder'),
     removeSearchFolder: invoke('settings:removeSearchFolder'),

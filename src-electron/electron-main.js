@@ -30,7 +30,7 @@ const platform = process.platform || os.platform()
 app.setName('xml-exporter-softbr')
 app.setPath('userData', path.join(app.getPath('appData'), 'xml-exporter-softbr'))
 
-async function createWindow () {
+function createWindow () {
   /**
    * Initial window options
    */
@@ -56,12 +56,6 @@ async function createWindow () {
     mainWindow.show()
   })
 
-  if (import.meta.env.QUASAR_DEV) {
-    await mainWindow.loadURL(import.meta.env.QUASAR_APP_URL)
-  } else {
-    await mainWindow.loadFile('index.html')
-  }
-
   if (import.meta.env.QUASAR_DEBUG) {
     // if on DEV or Production with debug enabled
     mainWindow.webContents.openDevTools()
@@ -73,6 +67,18 @@ async function createWindow () {
   }
 
   return mainWindow
+}
+
+// Carregar a página é separado de criar a janela: os handlers de IPC
+// precisam estar registrados ANTES do renderer subir — o router já chama
+// window.api.* no boot (configuração inicial), antes de qualquer tela
+// montar, e um invoke sem handler falha com "No handler registered".
+async function loadWindow (mainWindow) {
+  if (import.meta.env.QUASAR_DEV) {
+    await mainWindow.loadURL(import.meta.env.QUASAR_APP_URL)
+  } else {
+    await mainWindow.loadFile('index.html')
+  }
 }
 
 let recovering = false
@@ -143,7 +149,7 @@ async function attemptRecoveryViaUpdate (err) {
 void app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   registerQuasarRuntime()
-  const mainWindow = await createWindow()
+  const mainWindow = createWindow()
 
   try {
     const { registerIpcHandlers } = await import('./ipc/index.js')
@@ -153,9 +159,11 @@ void app.whenReady().then(async () => {
     return
   }
 
+  await loadWindow(mainWindow)
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      loadWindow(createWindow())
     }
   })
 })

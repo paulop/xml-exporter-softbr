@@ -6,8 +6,8 @@
           <q-icon name="dns" size="18px" />
           <span v-if="connectionsStore.loading">Carregando conexões...</span>
           <span v-else-if="connectionsStore.connections.length === 0">
-            Nenhuma conexão configurada —
-            <router-link to="/settings/connections">cadastre em Configurações</router-link>
+            Nenhuma conexão configurada - Cadastre em
+            <router-link to="/settings/connections">conexões</router-link>
           </span>
           <span v-else>
             Consultando {{ connectionsStore.connections.length }} conexão(ões):
@@ -190,31 +190,74 @@
 
     <ValidationChecklist />
 
+    <SendDialog
+      v-model="sendDialogOpen"
+      :note-count="selectedCount"
+      :period-label="rangeLabel"
+      @confirm="send"
+    />
+
     <div class="row items-center justify-end q-mt-md q-gutter-sm">
-      <q-btn
-        color="secondary"
-        outline
-        icon="description"
-        label="Baixar Log"
-        :loading="downloadingLog"
-        @click="downloadLog"
-      />
-      <q-btn
-        color="primary"
-        icon="folder_zip"
-        label="Baixar ZIP"
-        :loading="downloadingZip"
-        @click="downloadZip"
-      />
+      <div v-if="!queryStore.validated" class="text-caption text-grey-8 row items-center no-wrap">
+        <q-icon name="info" size="18px" color="primary" class="q-mr-xs" />
+        Clique em "Validar / Auditar" antes de enviar ou baixar o .zip.
+      </div>
+      <!-- Botão desabilitado não dispara tooltip; o wrapper é quem recebe o hover. -->
+      <div>
+        <q-btn
+          color="secondary"
+          outline
+          :icon="queryStore.uploaded ? 'check' : 'send'"
+          :label="queryStore.uploaded ? 'Enviado' : 'Enviar'"
+          :loading="sending"
+          :disable="busy || !queryStore.validated || queryStore.uploaded"
+          @click="sendDialogOpen = true"
+        />
+        <q-tooltip v-if="!queryStore.validated">
+          Clique em "Validar / Auditar" primeiro: a validação recupera notas faltantes,
+          remove duplicadas e define quais notas entram no .zip.
+        </q-tooltip>
+        <q-tooltip v-else-if="queryStore.uploaded">
+          Já enviado para a contabilidade nesta validação.
+          Rode "Validar / Auditar" de novo para enviar outra vez.
+        </q-tooltip>
+      </div>
+      <div>
+        <q-btn
+          color="primary"
+          icon="folder_zip"
+          label="Baixar .zip"
+          :loading="downloadingZip"
+          :disable="busy || !queryStore.validated"
+          @click="downloadZip"
+        />
+        <q-tooltip v-if="!queryStore.validated">
+          Clique em "Validar / Auditar" primeiro: a validação recupera notas faltantes,
+          remove duplicadas e define quais notas entram no .zip.
+        </q-tooltip>
+      </div>
     </div>
 
     <div class="row items-center justify-end q-mt-xs export-status">
-      <template v-if="downloadingZip || downloadingLog">
+      <template v-if="uploadProgress">
+        <span class="text-caption q-mr-sm">{{ statusMessage }}</span>
+        <q-linear-progress
+          :value="uploadProgress.sent / uploadProgress.total"
+          color="primary"
+          rounded
+          size="10px"
+          class="upload-progress"
+        />
+      </template>
+      <template v-else-if="statusMessage">
         <q-spinner-dots color="primary" size="20px" class="q-mr-xs" />
-        <span class="text-caption">Salvando arquivo...</span>
+        <span class="text-caption">{{ statusMessage }}</span>
       </template>
       <template v-else-if="exportMessage">
-        <div :class="exportOk ? 'text-positive' : 'text-negative'" class="text-caption export-message">
+        <div
+          :class="!exportOk ? 'text-negative' : exportWarning ? 'text-warning' : 'text-positive'"
+          class="text-caption export-message"
+        >
           {{ exportMessage }}
         </div>
       </template>
@@ -230,17 +273,38 @@ import { useQueryStore } from '@/stores/query-store'
 import { toPlain } from '@/utils/ipc'
 import NotaDetailDialog from '@/components/NotaDetailDialog.vue'
 import ValidationChecklist from '@/components/ValidationChecklist.vue'
+import SendDialog from '@/components/SendDialog.vue'
 
 const $q = useQuasar()
 const connectionsStore = useConnectionsStore()
 const queryStore = useQueryStore()
 
 const downloadingZip = ref(false)
-const downloadingLog = ref(false)
+const sending = ref(false)
+const sendDialogOpen = ref(false)
+const exportProgress = ref('')
+const uploadProgress = ref(null)
 const exportMessage = ref('')
 const exportOk = ref(true)
+const exportWarning = ref(false)
 const detailOpen = ref(false)
 const detailRow = ref(null)
+
+// O que o sistema está fazendo agora, exibido ao lado do loader embaixo
+// dos botões. Vazio = ocioso (aí aparece o resultado da última exportação).
+const statusMessage = computed(() => {
+  if (uploadProgress.value) {
+    const { sent, total } = uploadProgress.value
+    return `Enviando .zip para a contabilidade... ${Math.floor((sent / total) * 100)}% ` +
+      `(${formatMb(sent)} de ${formatMb(total)})`
+  }
+  if (downloadingZip.value || sending.value) return exportProgress.value || 'Preparando exportação...'
+  if (queryStore.querying) return `Consultando ${connectionsStore.connections.length} conexão(ões)...`
+  if (queryStore.validating) return 'Executando validação...'
+  if (connectionsStore.loading) return 'Carregando conexões...'
+  return ''
+})
+const busy = computed(() => statusMessage.value !== '')
 
 const selectedCount = computed(() => queryStore.selected.length)
 const selectedTotal = computed(() =>
@@ -385,6 +449,7 @@ async function downloadOne (row) {
   try {
     const result = await window.api.export.downloadOne(toPlain(row))
     exportOk.value = result.ok
+    exportWarning.value = false
     exportMessage.value = result.ok ? `Arquivo salvo em ${result.path}` : result.message
   } catch (err) {
     exportOk.value = false
@@ -394,41 +459,66 @@ async function downloadOne (row) {
 
 async function downloadZip () {
   downloadingZip.value = true
+  exportProgress.value = ''
   exportMessage.value = ''
+  exportWarning.value = false
+  const unsubscribe = window.api.export.onProgress((message) => { exportProgress.value = message })
   try {
     const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
     const result = await window.api.export.downloadZip(toPlain(queryStore.selected), period)
     exportOk.value = result.ok
     if (!result.ok) {
       exportMessage.value = result.message
-    } else if (result.paths.length > 1) {
-      exportMessage.value = `${result.paths.length} arquivos .zip salvos em ${result.dir} (${result.fileCount} XML(s))`
     } else {
-      exportMessage.value = `Arquivo salvo em ${result.path} (${result.fileCount} XML(s))`
+      exportMessage.value = `Arquivo salvo em ${result.path} (${result.fileCount} XML(s) + relatório)`
     }
   } catch (err) {
     exportOk.value = false
     exportMessage.value = err.message ?? String(err)
   } finally {
+    unsubscribe()
     downloadingZip.value = false
   }
 }
 
-async function downloadLog () {
-  downloadingLog.value = true
+function formatMb (bytes) {
+  return `${(bytes / 1024 / 1024).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`
+}
+
+// Gera o .zip (mesmo fluxo do "Baixar .zip") e envia pro storage da SoftBR.
+// Uma vez por validação: depois de enviado, o botão trava até validar de novo.
+// `emails` vem do diálogo de envio (email do contador, editável por envio).
+async function send (emails) {
+  sending.value = true
+  exportProgress.value = ''
+  uploadProgress.value = null
   exportMessage.value = ''
+  exportWarning.value = false
+  const unsubscribeProgress = window.api.export.onProgress((message) => { exportProgress.value = message })
+  const unsubscribeUpload = window.api.export.onUploadProgress((progress) => { uploadProgress.value = progress })
   try {
     const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
-    const result = await window.api.export.downloadLogXlsx(toPlain(queryStore.selected), period)
+    const result = await window.api.export.sendZip(toPlain(queryStore.selected), period, emails)
     exportOk.value = result.ok
-    exportMessage.value = result.ok
-      ? `Log salvo em ${result.path}`
-      : result.message
+    if (!result.ok) {
+      exportMessage.value = result.message
+    } else {
+      queryStore.uploaded = true
+      exportMessage.value = result.emailError
+        ? `Arquivo enviado (${result.fileCount} XML(s) + relatório), mas o email não foi enviado: ` +
+          `${result.emailError} Cópia salva em ${result.path}`
+        : `Enviado: link de download mandado para ${emails.join(', ')} ` +
+          `(${result.fileCount} XML(s) + relatório). Cópia salva em ${result.path}`
+      exportWarning.value = !!result.emailError
+    }
   } catch (err) {
     exportOk.value = false
     exportMessage.value = err.message ?? String(err)
   } finally {
-    downloadingLog.value = false
+    unsubscribeProgress()
+    unsubscribeUpload()
+    uploadProgress.value = null
+    sending.value = false
   }
 }
 
@@ -455,6 +545,10 @@ onMounted(async () => {
 
 .export-status {
   min-height: 24px;
+}
+
+.upload-progress {
+  width: 240px;
 }
 
 .export-message {

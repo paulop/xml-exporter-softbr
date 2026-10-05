@@ -23,9 +23,10 @@
           type="password"
           dense
         />
-        <q-checkbox v-model="form.options.encrypt" label="Usar criptografia (TLS)" />
+        <q-checkbox v-model="form.options.encrypt" label="Usar criptografia (TLS)" dense />
         <q-checkbox
           v-model="form.options.trustServerCertificate"
+          dense
           label="Confiar no certificado do servidor"
         />
 

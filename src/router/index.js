@@ -7,6 +7,7 @@ import {
 } from 'vue-router'
 
 import routes from './routes.js'
+import { pendingSetupRoute } from '@/utils/setup'
 
 /*
  * If not building with SSR mode, you can
@@ -30,6 +31,23 @@ export default defineRouter((/* { store, ssrContext } */) => {
     // quasar.conf.js -> build -> vueRouterMode
     // quasar.conf.js -> build -> publicPath
     history: createHistory(import.meta.env.QUASAR_VUE_ROUTER_BASE)
+  })
+
+  // Só na abertura do app: com Empresa/Contador vazios, começa por essas
+  // telas. Depois disso a navegação é livre (dá pra sair pelo menu).
+  let setupChecked = false
+  Router.beforeEach(async (to) => {
+    if (setupChecked) return true
+    setupChecked = true
+    try {
+      const pending = await pendingSetupRoute()
+      if (pending && !(to.path === pending && to.query.setup)) {
+        return { path: pending, query: { setup: '1' } }
+      }
+    } catch (err) {
+      console.error('Falha ao verificar a configuração inicial:', err)
+    }
+    return true
   })
 
   return Router

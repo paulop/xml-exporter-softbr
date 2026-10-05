@@ -28,10 +28,17 @@ const schema = {
     type: 'array',
     default: []
   },
-  zipPartSizeMb: {
-    type: 'number',
-    minimum: 1,
-    default: 20
+  company: {
+    type: 'object',
+    default: { cnpj: '' }
+  },
+  accountant: {
+    type: 'object',
+    default: { name: '', cnpj: '', whatsapp: '', email: '' }
+  },
+  uploadHistory: {
+    type: 'array',
+    default: []
   },
   appSettings: {
     type: 'object',

@@ -26,7 +26,7 @@ export async function run (rows, period) {
     })
 
     // Validação das pastas de NF-e avulsas (ver nfeCopyFolders.js) entra no
-    // mesmo botão "Executar validação" — não é mais uma ação separada na
+    // mesmo botão "Validar / Auditar" — não é mais uma ação separada na
     // tela de Configurações, usa o mesmo período já consultado.
     result.nfeFolderValidation = await validateNfeFolderSequence(store.get('nfeCopyFolders'), period ?? {})
     return result

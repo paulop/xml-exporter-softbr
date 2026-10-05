@@ -1,11 +1,13 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref } from 'vue'
+import { toPlain } from '@/utils/ipc'
 
 export const useSettingsStore = defineStore('settings', () => {
   const destinationFolder = ref('')
   const searchFolders = ref([])
   const nfeCopyFolders = ref([])
-  const zipPartSizeMb = ref(20)
+  const company = ref({ cnpj: '' })
+  const accountant = ref({ name: '', cnpj: '', whatsapp: '', email: '' })
   const sql = ref('')
   const defaultSql = ref('')
   const appVersion = ref('')
@@ -14,7 +16,8 @@ export const useSettingsStore = defineStore('settings', () => {
     destinationFolder.value = (await window.api.settings.getDestinationFolder()) ?? ''
     searchFolders.value = (await window.api.settings.getSearchFolders()) ?? []
     nfeCopyFolders.value = (await window.api.settings.getNfeCopyFolders()) ?? []
-    zipPartSizeMb.value = (await window.api.settings.getZipPartSizeMb()) ?? 20
+    company.value = (await window.api.settings.getCompany()) ?? company.value
+    accountant.value = (await window.api.settings.getAccountant()) ?? accountant.value
     sql.value = await window.api.query.getSql()
     defaultSql.value = await window.api.query.getDefaultSql()
     appVersion.value = await window.api.app.getVersion()
@@ -25,9 +28,14 @@ export const useSettingsStore = defineStore('settings', () => {
     return destinationFolder.value
   }
 
-  async function saveZipPartSizeMb (value) {
-    zipPartSizeMb.value = (await window.api.settings.setZipPartSizeMb(value)) ?? zipPartSizeMb.value
-    return zipPartSizeMb.value
+  async function saveCompany (payload) {
+    company.value = await window.api.settings.setCompany(toPlain(payload))
+    return company.value
+  }
+
+  async function saveAccountant (payload) {
+    accountant.value = await window.api.settings.setAccountant(toPlain(payload))
+    return accountant.value
   }
 
   async function addSearchFolder () {
@@ -66,13 +74,15 @@ export const useSettingsStore = defineStore('settings', () => {
     destinationFolder,
     searchFolders,
     nfeCopyFolders,
-    zipPartSizeMb,
+    company,
+    accountant,
     sql,
     defaultSql,
     appVersion,
     load,
     chooseDestinationFolder,
-    saveZipPartSizeMb,
+    saveCompany,
+    saveAccountant,
     addSearchFolder,
     removeSearchFolder,
     addNfeCopyFolder,

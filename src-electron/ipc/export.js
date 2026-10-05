@@ -3,12 +3,11 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import { createRequire } from 'node:module'
-import zlib from 'node:zlib'
-import { promisify } from 'node:util'
 import { store } from '../lib/store.js'
 import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
 import { dedupeByChave } from '../lib/notaValidation.js'
 import { collectNfeFromFolders } from '../lib/nfeCopyFolders.js'
+import { uploadZip, sendDownloadEmail, UploadError } from '../lib/xmlUpload.js'
 
 // archiver é CommonJS; require() evita problemas de interop ESM/CJS
 // que o bundler do processo main do Electron introduz com "import default".
@@ -23,15 +22,7 @@ function getZipArchive () {
   return ZipArchive
 }
 
-const deflateRaw = promisify(zlib.deflateRaw)
 const ZIP_LEVEL = 9
-// Bytes que o formato zip gasta por arquivo além dos dados comprimidos:
-// cabeçalho local (30) + descritor de dados (16, ou 24 em zip64) + entrada
-// no diretório central (46), mais o nome do arquivo duas vezes (somado à
-// parte). Arredondado pra cima como folga.
-const ZIP_ENTRY_OVERHEAD = 128
-// Registro de fim do diretório central (22), mais os de zip64 se aparecerem.
-const ZIP_END_OVERHEAD = 128
 
 function sanitizeFileName (value) {
   return String(value ?? '').replace(/[\\/:*?"<>|]/g, '_')
@@ -122,89 +113,121 @@ function writeZip (zipPath, entries) {
   })
 }
 
-// Divide os arquivos em grupos cujo .zip resultante fique dentro de
-// `maxBytes`. Cada parte é um .zip completo e independente (abre sozinho,
-// sem precisar das outras), não um zip multi-volume (.z01, .z02...). O
-// tamanho de cada XML no zip é estimado comprimindo-o antes com o mesmo
-// nível do archiver; um XML que sozinho passe do limite vai numa parte só
-// dele, já que não dá pra quebrar um arquivo no meio.
-async function splitIntoParts (entries, maxBytes) {
-  const sizes = await Promise.all(entries.map(async (entry) => {
-    const compressed = await deflateRaw(entry.data, { level: ZIP_LEVEL })
-    return compressed.length + ZIP_ENTRY_OVERHEAD + 2 * Buffer.byteLength(entry.name)
-  }))
-
-  const parts = []
-  let current = []
-  let currentSize = ZIP_END_OVERHEAD
-  entries.forEach((entry, i) => {
-    if (current.length > 0 && currentSize + sizes[i] > maxBytes) {
-      parts.push(current)
-      current = []
-      currentSize = ZIP_END_OVERHEAD
-    }
-    current.push(entry)
-    currentSize += sizes[i]
-  })
-  if (current.length > 0) parts.push(current)
-  return parts
-}
-
-export async function downloadZip (items, period) {
+// Um único .zip, sem divisão em partes (o envio vai pro S3, que aceita o
+// arquivo completo), com os XMLs e o relatório .xlsx em pastas separadas. `onProgress`
+// recebe uma frase curta do passo atual, exibida na tela enquanto o
+// arquivo é gerado.
+export async function downloadZip (items, period, onProgress = () => {}) {
   const selectedItems = (items ?? []).filter((item) => item.xmlContent)
+  onProgress('Buscando NF-e nas pastas avulsas...')
   const validItems = await withNfeFolderExtras(selectedItems, period)
   if (validItems.length === 0) {
     return { ok: false, message: 'Nenhuma nota selecionada possui XML disponível.' }
   }
 
+  onProgress('Aguardando a pasta de destino...')
   const dir = await resolveDestinationDir()
   if (!dir) return { ok: false, message: 'Nenhuma pasta de destino selecionada.' }
 
-  const entries = validItems.map((item) => ({ name: fileNameFor(item), data: toBuffer(item.xmlContent) }))
-  const maxBytes = store.get('zipPartSizeMb') * 1024 * 1024
-  const parts = await splitIntoParts(entries, maxBytes)
+  onProgress('Gerando relatório .xlsx...')
+  const reportBuffer = await buildLogWorkbookBuffer(validItems)
+
+  // Estrutura do .zip: log/ com o relatório e xml/ com as notas.
+  const entries = [
+    { name: 'log/Relatorio_XML_SoftBR.xlsx', data: reportBuffer },
+    ...validItems.map((item) => ({ name: `xml/${fileNameFor(item)}`, data: toBuffer(item.xmlContent) }))
+  ]
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const digits = String(parts.length).length
-  const zipPaths = parts.map((_part, i) => parts.length === 1
-    ? path.join(dir, `NFe-Export-${timestamp}.zip`)
-    : path.join(dir, `NFe-Export-${timestamp}-parte${String(i + 1).padStart(digits, '0')}.zip`))
+  const zipPath = path.join(dir, `NFe-Export-${timestamp}.zip`)
 
-  for (let i = 0; i < parts.length; i++) {
-    try {
-      await writeZip(zipPaths[i], parts[i])
-    } catch (err) {
-      if (['EBUSY', 'EPERM', 'EACCES'].includes(err.code)) {
-        return {
-          ok: false,
-          message: `Não foi possível salvar "${path.basename(zipPaths[i])}": o destino está aberto em outro programa ` +
-            'ou sem permissão de escrita. Feche-o e tente novamente.'
-        }
+  onProgress(`Compactando ${validItems.length} XML(s) no arquivo .zip...`)
+  try {
+    await writeZip(zipPath, entries)
+  } catch (err) {
+    if (['EBUSY', 'EPERM', 'EACCES'].includes(err.code)) {
+      return {
+        ok: false,
+        message: `Não foi possível salvar "${path.basename(zipPath)}": o destino está aberto em outro programa ` +
+          'ou sem permissão de escrita. Feche-o e tente novamente.'
       }
-      throw err
     }
+    throw err
   }
 
-  return { ok: true, path: zipPaths[0], paths: zipPaths, dir, fileCount: validItems.length }
+  return { ok: true, path: zipPath, fileCount: validItems.length }
 }
 
-export async function downloadLogXlsx (items, period) {
-  const selectedItems = (items ?? []).filter((item) => item.xmlContent)
-  const validItems = await withNfeFolderExtras(selectedItems, period)
-  if (validItems.length === 0) {
-    return { ok: false, message: 'Nenhuma nota selecionada possui XML disponível.' }
+function formatIsoDate (iso) {
+  const [y, m, d] = String(iso ?? '').split('-')
+  return d ? `${d}/${m}/${y}` : ''
+}
+
+// "Enviar": gera o .zip exatamente como "Baixar .zip" (fica salvo também na
+// pasta de destino), envia pro storage da SoftBR e manda o link de download
+// por email pros destinatários escolhidos no diálogo. `onUploadProgress(sent,
+// total)` alimenta a barra de progresso. O `key` de cada envio é guardado
+// em `uploadHistory`, já que as URLs devolvidas pelo serviço expiram,
+// junto com os emails de destino escolhidos no diálogo de envio.
+export async function sendZip (items, period, emails, onProgress = () => {}, onUploadProgress = () => {}) {
+  const cnpj = store.get('company')?.cnpj
+  if (!cnpj) {
+    return { ok: false, message: 'Cadastre o CNPJ da empresa (menu Empresa) antes de enviar.' }
   }
 
-  // Mesma pasta de destino do .zip, sem perguntar — e com timestamp no nome
-  // pra nunca colidir com um relatório anterior que ainda esteja aberto.
-  const dir = await resolveDestinationDir()
-  if (!dir) return { ok: false, message: 'Nenhuma pasta de destino selecionada.' }
+  const zip = await downloadZip(items, period, onProgress)
+  if (!zip.ok) return zip
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const filePath = path.join(dir, `Relatorio_XML_SoftBR-${timestamp}.xlsx`)
+  onProgress('Enviando .zip para a contabilidade...')
+  let uploaded
+  try {
+    uploaded = await uploadZip({
+      cnpj,
+      filePath: zip.path,
+      filename: path.basename(zip.path),
+      onProgress: onUploadProgress
+    })
+  } catch (err) {
+    if (err instanceof UploadError) {
+      return { ok: false, message: `${err.message} O .zip ficou salvo em ${zip.path}.` }
+    }
+    throw err
+  }
 
-  const buffer = await buildLogWorkbookBuffer(validItems)
-  return writeFileSafe(filePath, buffer)
+  // O arquivo já está no storage a partir daqui: uma falha no email não
+  // desfaz o envio, só volta como aviso (`emailError`) junto do sucesso.
+  onProgress(`Enviando email com o link de download para ${emails.join(', ')}...`)
+  let emailError = null
+  try {
+    const periodo = `${formatIsoDate(period?.dataInicial)} a ${formatIsoDate(period?.dataFinal)}`
+    await sendDownloadEmail({
+      cnpj: uploaded.cnpj ?? cnpj,
+      key: uploaded.key,
+      to: emails,
+      name: store.get('accountant')?.name,
+      message: `Segue o arquivo com ${zip.fileCount} XML(s) de notas fiscais e o relatório de auditoria, ` +
+        `referente ao período de ${periodo}.`
+    })
+  } catch (err) {
+    if (!(err instanceof UploadError)) throw err
+    emailError = err.message
+  }
+
+  const history = store.get('uploadHistory')
+  store.set('uploadHistory', [
+    {
+      key: uploaded.key,
+      fileName: path.basename(zip.path),
+      size: uploaded.size,
+      period,
+      emails: emails ?? [],
+      emailSent: !emailError,
+      uploadedAt: new Date().toISOString()
+    },
+    ...history
+  ].slice(0, 200))
+
+  return { ok: true, path: zip.path, key: uploaded.key, fileCount: zip.fileCount, emailError }
 }
 
 export async function downloadReportCsv ({ csv, fileName }) {

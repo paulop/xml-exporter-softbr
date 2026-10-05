@@ -16,17 +16,29 @@ export async function setDestinationFolder () {
   return result.filePaths[0]
 }
 
-// Tamanho máximo (em MB) de cada parte do .zip exportado.
-export function getZipPartSizeMb () {
-  return store.get('zipPartSizeMb')
+// Dados da empresa (a licença ainda não tem origem — por ora só o CNPJ).
+export function getCompany () {
+  return store.get('company')
 }
 
-export function setZipPartSizeMb (value) {
-  const sizeMb = Number(value)
-  if (Number.isFinite(sizeMb) && sizeMb >= 1) {
-    store.set('zipPartSizeMb', sizeMb)
-  }
-  return store.get('zipPartSizeMb')
+export function setCompany (payload) {
+  store.set('company', { cnpj: String(payload?.cnpj ?? '') })
+  return store.get('company')
+}
+
+// Contato do contador, destino do envio do .zip de XML.
+export function getAccountant () {
+  return store.get('accountant')
+}
+
+export function setAccountant (payload) {
+  store.set('accountant', {
+    name: String(payload?.name ?? ''),
+    cnpj: String(payload?.cnpj ?? ''),
+    whatsapp: String(payload?.whatsapp ?? ''),
+    email: String(payload?.email ?? '')
+  })
+  return store.get('accountant')
 }
 
 export function getSearchFolders () {

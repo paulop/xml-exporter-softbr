@@ -8,7 +8,7 @@ import { parseXmlDetalhado } from './notaValidation.js'
 // e este arquivo é importado em cadeia a partir de electron-main.js logo na
 // inicialização do app (main.js -> ipc/index.js -> ipc/export.js -> aqui).
 // Se o pacote estiver faltando no build (já aconteceu), isso travava o app
-// inteiro ao abrir, não só o botão "Baixar Log".
+// inteiro ao abrir, não só o botão "Baixar .zip".
 const require = createRequire(import.meta.url)
 let ExcelJS = null
 function getExcelJS () {

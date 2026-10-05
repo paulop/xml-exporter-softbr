@@ -7,7 +7,7 @@ Para isso, o app:
 - Conecta diretamente no(s) SQL Server(s) onde o ERP grava as notas (sem middleware nem exportação intermediária) — **cada conexão cadastrada representa um computador/caixa diferente**, normalmente com séries próprias, e clicar em "Consultar" sempre percorre **todas** as conexões configuradas e concatena o resultado num lugar só. É esse "unir as fontes" que é o objetivo central do app — sem ele, cada caixa ficaria com seu próprio lote separado e a contabilidade teria que juntar manualmente.
 - Deixa a consulta SQL configurável, já que o nome das tabelas/colunas varia entre instalações do ERP (a mesma consulta roda em todas as conexões).
 - Executa um pipeline de validação e recuperação automática antes da exportação, para reduzir lotes incompletos ou com XML corrompido chegando à contabilidade.
-- Exporta o resultado final em `.zip`, com cada arquivo nomeado pela chave de acesso da nota. Se passar do tamanho máximo configurado (padrão 20 MB), é dividido em vários `.zip` independentes (`-parte1`, `-parte2`...).
+- Exporta o resultado final em `.zip`, com os XMLs na pasta `xml/` (cada arquivo nomeado pela chave de acesso da nota) e o relatório `.xlsx` na pasta `log/`.
 
 ## Consulta unificada de múltiplas conexões
 
@@ -17,7 +17,7 @@ Como a detecção de lacunas (etapa 3 abaixo) agrupa por série, esse modelo ass
 
 ## Etapas de busca e validação das notas
 
-O pipeline roda em [ValidationChecklist.vue](../src/components/ValidationChecklist.vue) (interface) e [notaValidation.js](../src-electron/lib/notaValidation.js) (lógica), disparado pelo botão "Executar validação" após a consulta ao banco.
+O pipeline roda em [ValidationChecklist.vue](../src/components/ValidationChecklist.vue) (interface) e [notaValidation.js](../src-electron/lib/notaValidation.js) (lógica), disparado pelo botão "Validar / Auditar" após a consulta ao banco.
 
 1. **Extração do banco de dados** — já realizada pela consulta SQL configurada, rodada contra todas as conexões cadastradas e concatenada; é o ponto de partida do lote (linhas com `numero`, `serie`, `chave`, `status`, `tpEmissao`, `conexao` e o XML em base64, quando disponível).
 
@@ -50,11 +50,11 @@ O pipeline roda em [ValidationChecklist.vue](../src/components/ValidationCheckli
 
 ## Nomeação dos arquivos exportados
 
-Cada XML exportado (individualmente ou dentro do `.zip`) é nomeado apenas pela **chave de acesso** da nota (`<chave>.xml`), sanitizada para remover caracteres inválidos em nome de arquivo. Ver [fileNameFor em export.js](../src-electron/ipc/export.js).
+Cada XML exportado (individualmente ou dentro da pasta `xml/` do `.zip`) é nomeado apenas pela **chave de acesso** da nota (`<chave>.xml`), sanitizada para remover caracteres inválidos em nome de arquivo. Ver [fileNameFor em export.js](../src-electron/ipc/export.js).
 
 ## Relatório de log em XLSX (padrão SoftBR)
 
-O botão **"Baixar Log"**, ao lado de "Baixar ZIP" na tela principal, gera um `.xlsx` de auditoria (`buildLogWorkbookBuffer` em [xlsxReport.js](../src-electron/lib/xlsxReport.js)) a partir do mesmo conjunto de notas selecionado para o `.zip` — é um relatório independente, não depende de ter rodado "Executar validação" antes. Assim como o `.zip`, salva direto na pasta de destino configurada (**Configurações → Pastas**), sem perguntar onde salvar; o nome do arquivo leva um timestamp (`Relatorio_XML_SoftBR-<timestamp>.xlsx`) pra nunca colidir com um relatório anterior que ainda esteja aberto em outro programa. Como os itens não carregam CNPJ, razão social, destinatário ou valores discriminados por padrão, essa etapa reparseia o XML de cada nota (`parseXmlDetalhado`, em [notaValidation.js](../src-electron/lib/notaValidation.js)) para extrair esses campos; o restante (status, tipo de emissão, valor total) vem do item já processado pelo pipeline, por ser mais confiável.
+O botão **"Baixar .zip"** na tela principal só fica habilitado depois de rodar **"Validar / Auditar"** sobre a consulta atual (uma nova consulta exige validar de novo). Ele inclui, junto dos XMLs, um `.xlsx` de auditoria (`log/Relatorio_XML_SoftBR.xlsx`, gerado por `buildLogWorkbookBuffer` em [xlsxReport.js](../src-electron/lib/xlsxReport.js)) a partir do mesmo conjunto de notas — o conteúdo do relatório sai das próprias notas, não do resultado da validação. Como os itens não carregam CNPJ, razão social, destinatário ou valores discriminados por padrão, essa etapa reparseia o XML de cada nota (`parseXmlDetalhado`, em [notaValidation.js](../src-electron/lib/notaValidation.js)) para extrair esses campos; o restante (status, tipo de emissão, valor total) vem do item já processado pelo pipeline, por ser mais confiável.
 
 Qualquer escrita de arquivo nesse módulo (`.zip`, `.xlsx`, `.csv`, `.pdf`) passa por `writeFileSafe`, que traduz erros de arquivo travado/sem permissão (`EBUSY`/`EPERM`/`EACCES` — tipicamente o destino aberto no Excel) numa mensagem acionável, em vez de deixar o erro cru do Node subir pelo IPC.
 
@@ -68,15 +68,27 @@ Três abas fixas:
 
 Datas são formatadas lendo a string ISO (`dhEmi`) literalmente, sem conversão de fuso horário — importa o horário local gravado pelo PDV, não o fuso da máquina que roda o relatório.
 
+## Envio para a contabilidade (botão "Enviar")
+
+O botão **"Enviar"** gera o `.zip` exatamente como **"Baixar .zip"** (uma cópia fica salva na pasta de destino) e em seguida faz o upload para o storage S3 (RustFS) da SoftBR, com barra de progresso na tela. Ver `sendZip` em [export.js](../src-electron/ipc/export.js) e [xmlUpload.js](../src-electron/lib/xmlUpload.js).
+
+- **Pré-requisitos:** a consulta atual precisa ter passado por **"Validar / Auditar"**, e o CNPJ da empresa precisa estar cadastrado no menu **Empresa**. É esse CNPJ (o da empresa licenciada, não o do contador) que identifica o cliente no serviço.
+- **Diálogo de envio:** antes de enviar, abre uma tela com o resumo (notas e período), o nome do contador e o email de destino, pré-preenchido com o do menu **Contador**. Dá pra editar o email e adicionar outros; essas alterações valem só para aquele envio. Máximo de 5 destinatários (limite do serviço de email).
+- **Uma vez por validação:** depois de um envio com sucesso, o botão vira "Enviado" e fica travado até rodar "Validar / Auditar" de novo (ou fazer uma nova consulta).
+- **Fluxo em 2 passos:** `POST https://webhook.softbr.net/webhook/xml-upload-url` com `{ cnpj, filename, contentType: "application/zip" }` devolve uma `uploadUrl` assinada; o arquivo vai nela via `PUT` com o corpo bruto e exatamente os `headers` da resposta (mais o `Content-Length`). Se o `PUT` voltar 403 (URL expirada), pede uma URL nova e tenta mais uma vez.
+- **Email com o link de download:** depois do `PUT` com 200, `POST https://webhook.softbr.net/webhook/xml-send-email` com `{ cnpj, key, to, name, message }` faz o serviço mandar aos destinatários um link de download do `.zip`, válido por 7 dias (padrão do serviço). `cnpj` e `key` são os devolvidos no passo 1 (o `key` precisa começar com `<cnpj>/`), `name` é o nome do contador e `message` cita a quantidade de XMLs e o período. Se só o email falhar, o envio do arquivo continua valendo: a tela mostra um aviso em laranja com o motivo, e o histórico registra `emailSent: false`.
+- **Histórico:** o `key` de cada envio (identificador permanente do arquivo no storage, já que as URLs expiram) fica guardado em `uploadHistory` nas configurações do app, junto com o nome do arquivo, o tamanho, o período e a data do envio.
+- **Erros:** 400 do webhook mostra a mensagem retornada pelo serviço; 403 no passo 1 indica CNPJ sem licença ativa. Em qualquer falha de envio, o `.zip` continua salvo localmente e a mensagem informa onde.
+
 ## Pastas de NF-e avulsas (cópia direta por período)
 
 Além das "Pastas de busca de XMLs faltantes" (usadas na busca em cascata do pipeline acima), **Configurações → Pastas** tem uma segunda lista, independente: as **pastas de NF-e avulsas**, configuradas via `nfeCopyFolders` no store (ver [store.js](../src-electron/lib/store.js) e [settings.js](../src-electron/ipc/settings.js)). São notas NF-e (modelo 55) de uma fonte que nunca passa pelo banco de dados consultado — não há linha nenhuma pra casar, nem lacuna pra preencher.
 
 `collectNfeFromFolders` ([nfeCopyFolders.js](../src-electron/lib/nfeCopyFolders.js)) varre recursivamente essas pastas e inclui, no `.zip` e no log, apenas os XMLs cuja data de emissão (`dhEmi`/`dEmi`) cai dentro do período (`dataInicial`/`dataFinal`) selecionado na tela principal — sem passar pela busca em cascata, dedupe por lacuna ou qualquer tentativa de casar com linha do banco (o único dedupe que roda é por chave, caso a mesma nota apareça tanto no banco quanto numa dessas pastas, priorizando a do banco). Para evitar abrir arquivo por arquivo numa pasta grande, há um pré-filtro por mês decodificado direto do nome do arquivo (AAMM da chave, ver `decodeAnoMesFromChave`) antes de ler qualquer conteúdo; arquivos cujo nome não contém a chave ainda são abertos (não dá pra descartar sem ler).
 
-Essa varredura roda junto com "Baixar ZIP" e "Baixar Log" (`downloadZip`/`downloadLogXlsx` em [export.js](../src-electron/ipc/export.js)), que agora recebem o período selecionado além da lista de notas. Os dois botões funcionam mesmo com **zero notas selecionadas na tabela** — útil quando o lote do período é só (ou majoritariamente) NF-e de pasta avulsa, sem nenhuma linha correspondente no banco; nesse caso o `.zip`/log sai só com o que foi achado nas pastas. Se não houver nada em nenhuma fonte, o próprio botão retorna a mensagem "Nenhuma nota selecionada possui XML disponível." em vez de ficar desabilitado sem explicação.
+Essa varredura roda junto com "Baixar .zip" (`downloadZip` em [export.js](../src-electron/ipc/export.js)), que recebe o período selecionado além da lista de notas. O botão funciona mesmo com **zero notas selecionadas na tabela** — útil quando o lote do período é só (ou majoritariamente) NF-e de pasta avulsa, sem nenhuma linha correspondente no banco; nesse caso o `.zip` sai só com o que foi achado nas pastas. Se não houver nada em nenhuma fonte, o botão retorna a mensagem "Nenhuma nota selecionada possui XML disponível." em vez de ficar desabilitado sem explicação.
 
-**Validação de início/fim de numeração** — não é mais uma ação separada em Configurações: `validateNfeFolderSequence` roda automaticamente dentro do mesmo "Executar validação" da tela principal ([ValidationChecklist.vue](../src/components/ValidationChecklist.vue) → `ipc/validation.js`), usando o período já selecionado na consulta (`dataInicial`/`dataFinal`, convertido para os meses que o período toca). O resultado aparece como uma tabela extra no mesmo checklist, logo abaixo do relatório de quebras do banco — só quando há pastas de NF-e avulsas configuradas e algo foi encontrado no período. O botão "Executar validação" também não fica mais desabilitado com zero notas no banco, pelo mesmo motivo do ZIP/Log: o lote do período pode ser só NF-e de pasta avulsa.
+**Validação de início/fim de numeração** — não é mais uma ação separada em Configurações: `validateNfeFolderSequence` roda automaticamente dentro do mesmo "Validar / Auditar" da tela principal ([ValidationChecklist.vue](../src/components/ValidationChecklist.vue) → `ipc/validation.js`), usando o período já selecionado na consulta (`dataInicial`/`dataFinal`, convertido para os meses que o período toca). O resultado aparece como uma tabela extra no mesmo checklist, logo abaixo do relatório de quebras do banco — só quando há pastas de NF-e avulsas configuradas e algo foi encontrado no período. O botão "Validar / Auditar" também não fica mais desabilitado com zero notas no banco, pelo mesmo motivo do ZIP/Log: o lote do período pode ser só NF-e de pasta avulsa.
 
 ## Resiliência a dependência faltando no pacote
 

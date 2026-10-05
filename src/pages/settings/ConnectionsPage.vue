@@ -8,7 +8,7 @@
       <q-btn color="primary" icon="add" label="Nova conexão" @click="openNew" />
     </div>
 
-    <q-list bordered separator>
+    <q-list dense bordered separator>
       <q-item v-for="connection in connectionsStore.connections" :key="connection.id">
         <q-item-section>
           <q-item-label>{{ connection.name }}</q-item-label>

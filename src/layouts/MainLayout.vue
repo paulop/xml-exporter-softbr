@@ -29,6 +29,11 @@
                 <q-item-section>Notas fiscais</q-item-section>
               </q-item>
 
+              <q-item v-close-popup clickable to="/company">
+                <q-item-section avatar><q-icon name="business" /></q-item-section>
+                <q-item-section>Empresa</q-item-section>
+              </q-item>
+
               <q-separator />
               <q-item-label header>Configurações</q-item-label>
 
@@ -45,6 +50,11 @@
               <q-item v-close-popup clickable to="/settings/export">
                 <q-item-section avatar><q-icon name="folder_zip" /></q-item-section>
                 <q-item-section>Pastas</q-item-section>
+              </q-item>
+
+              <q-item v-close-popup clickable to="/settings/accountant">
+                <q-item-section avatar><q-icon name="contact_mail" /></q-item-section>
+                <q-item-section>Contador</q-item-section>
               </q-item>
 
               <q-separator />

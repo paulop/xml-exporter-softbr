@@ -103,7 +103,7 @@ export async function collectNfeFromFolders (folders, { dataInicial, dataFinal }
 // pastas do pipeline de recuperação, mas aqui o objetivo é outro: não é
 // achar lacuna pra recuperar, é mostrar pro usuário se a pasta de NF-e
 // avulsas está com a sequência completa (ou com buraco) no período
-// consultado. Roda junto com "Executar validação" (mesmo período da
+// consultado. Roda junto com "Validar / Auditar" (mesmo período da
 // consulta principal), não é mais uma ação separada. A chave só guarda
 // ano/mês (AAMM), não o dia — por isso o filtro aqui é por mês (todo mês
 // que o período tocar), não por intervalo exato de datas.
