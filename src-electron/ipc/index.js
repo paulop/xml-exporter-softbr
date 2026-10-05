@@ -31,6 +31,8 @@ export function registerIpcHandlers (mainWindow) {
 
   ipcMain.handle('settings:getDestinationFolder', () => settings.getDestinationFolder())
   ipcMain.handle('settings:setDestinationFolder', () => settings.setDestinationFolder())
+  ipcMain.handle('settings:getZipPartSizeMb', () => settings.getZipPartSizeMb())
+  ipcMain.handle('settings:setZipPartSizeMb', (_e, value) => settings.setZipPartSizeMb(value))
   ipcMain.handle('settings:getSearchFolders', () => settings.getSearchFolders())
   ipcMain.handle('settings:addSearchFolder', () => settings.addSearchFolder())
   ipcMain.handle('settings:removeSearchFolder', (_e, folderPath) => settings.removeSearchFolder(folderPath))

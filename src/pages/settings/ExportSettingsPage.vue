@@ -6,20 +6,42 @@
     </div>
 
     <div class="text-subtitle2 q-mb-sm">Destino de exportação</div>
-    <q-input
-      :model-value="settingsStore.destinationFolder || 'Nenhuma pasta selecionada'"
-      readonly
-      filled
-      dense
-      label="Pasta de destino"
-    >
-      <template #append>
-        <q-btn flat dense icon="folder_open" label="Escolher pasta" @click="choose" />
-      </template>
-    </q-input>
+    <div class="row q-col-gutter-sm">
+      <div class="col">
+        <q-input
+          :model-value="settingsStore.destinationFolder || 'Nenhuma pasta selecionada'"
+          readonly
+          filled
+          dense
+          label="Pasta de destino"
+        >
+          <template #append>
+            <q-btn flat dense icon="folder_open" label="Escolher pasta" @click="choose" />
+          </template>
+        </q-input>
+      </div>
+      <div class="col-auto" style="width: 180px">
+        <q-input
+          v-model.number="zipPartSize"
+          type="number"
+          min="1"
+          filled
+          dense
+          debounce="500"
+          label="Tamanho máx. do ZIP"
+          suffix="MB"
+          :rules="[(v) => Number(v) >= 1 || 'Mínimo 1 MB']"
+          hide-bottom-space
+          @update:model-value="saveZipPartSize"
+          @blur="zipPartSize = settingsStore.zipPartSizeMb"
+        />
+      </div>
+    </div>
 
     <div class="text-caption text-grey q-mt-sm">
       Se nenhuma pasta for configurada, o app perguntará onde salvar a cada exportação.
+      Exportações maiores que o tamanho máximo são divididas em vários .zip (parte1, parte2...),
+      cada um abrindo de forma independente.
     </div>
 
     <q-separator class="q-my-lg" />
@@ -90,13 +112,22 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settings-store'
 
 const settingsStore = useSettingsStore()
 
 async function choose () {
   await settingsStore.chooseDestinationFolder()
+}
+
+// Valor digitado fica local até ser salvo; valores inválidos (vazio, < 1)
+// não são gravados e o campo volta pro valor salvo ao perder o foco.
+const zipPartSize = ref(settingsStore.zipPartSizeMb)
+watch(() => settingsStore.zipPartSizeMb, (value) => { zipPartSize.value = value })
+
+async function saveZipPartSize (value) {
+  if (Number(value) >= 1) await settingsStore.saveZipPartSizeMb(value)
 }
 
 async function addFolder () {

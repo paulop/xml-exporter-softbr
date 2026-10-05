@@ -28,6 +28,11 @@ const schema = {
     type: 'array',
     default: []
   },
+  zipPartSizeMb: {
+    type: 'number',
+    minimum: 1,
+    default: 20
+  },
   appSettings: {
     type: 'object',
     default: { checkUpdatesOnStartup: true }

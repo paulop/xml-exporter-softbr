@@ -3,6 +3,8 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import { createRequire } from 'node:module'
+import zlib from 'node:zlib'
+import { promisify } from 'node:util'
 import { store } from '../lib/store.js'
 import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
 import { dedupeByChave } from '../lib/notaValidation.js'
@@ -20,6 +22,16 @@ function getZipArchive () {
   if (!ZipArchive) ({ ZipArchive } = require('archiver'))
   return ZipArchive
 }
+
+const deflateRaw = promisify(zlib.deflateRaw)
+const ZIP_LEVEL = 9
+// Bytes que o formato zip gasta por arquivo além dos dados comprimidos:
+// cabeçalho local (30) + descritor de dados (16, ou 24 em zip64) + entrada
+// no diretório central (46), mais o nome do arquivo duas vezes (somado à
+// parte). Arredondado pra cima como folga.
+const ZIP_ENTRY_OVERHEAD = 128
+// Registro de fim do diretório central (22), mais os de zip64 se aparecerem.
+const ZIP_END_OVERHEAD = 128
 
 function sanitizeFileName (value) {
   return String(value ?? '').replace(/[\\/:*?"<>|]/g, '_')
@@ -92,6 +104,52 @@ async function withNfeFolderExtras (validItems, period) {
   return kept
 }
 
+function writeZip (zipPath, entries) {
+  return new Promise((resolve, reject) => {
+    const output = createWriteStream(zipPath)
+    const archive = new (getZipArchive())({ zlib: { level: ZIP_LEVEL } })
+
+    output.on('close', resolve)
+    output.on('error', reject)
+    archive.on('error', reject)
+    archive.pipe(output)
+
+    for (const entry of entries) {
+      archive.append(entry.data, { name: entry.name })
+    }
+
+    archive.finalize()
+  })
+}
+
+// Divide os arquivos em grupos cujo .zip resultante fique dentro de
+// `maxBytes`. Cada parte é um .zip completo e independente (abre sozinho,
+// sem precisar das outras), não um zip multi-volume (.z01, .z02...). O
+// tamanho de cada XML no zip é estimado comprimindo-o antes com o mesmo
+// nível do archiver; um XML que sozinho passe do limite vai numa parte só
+// dele, já que não dá pra quebrar um arquivo no meio.
+async function splitIntoParts (entries, maxBytes) {
+  const sizes = await Promise.all(entries.map(async (entry) => {
+    const compressed = await deflateRaw(entry.data, { level: ZIP_LEVEL })
+    return compressed.length + ZIP_ENTRY_OVERHEAD + 2 * Buffer.byteLength(entry.name)
+  }))
+
+  const parts = []
+  let current = []
+  let currentSize = ZIP_END_OVERHEAD
+  entries.forEach((entry, i) => {
+    if (current.length > 0 && currentSize + sizes[i] > maxBytes) {
+      parts.push(current)
+      current = []
+      currentSize = ZIP_END_OVERHEAD
+    }
+    current.push(entry)
+    currentSize += sizes[i]
+  })
+  if (current.length > 0) parts.push(current)
+  return parts
+}
+
 export async function downloadZip (items, period) {
   const selectedItems = (items ?? []).filter((item) => item.xmlContent)
   const validItems = await withNfeFolderExtras(selectedItems, period)
@@ -102,37 +160,32 @@ export async function downloadZip (items, period) {
   const dir = await resolveDestinationDir()
   if (!dir) return { ok: false, message: 'Nenhuma pasta de destino selecionada.' }
 
+  const entries = validItems.map((item) => ({ name: fileNameFor(item), data: toBuffer(item.xmlContent) }))
+  const maxBytes = store.get('zipPartSizeMb') * 1024 * 1024
+  const parts = await splitIntoParts(entries, maxBytes)
+
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const zipPath = path.join(dir, `NFe-Export-${timestamp}.zip`)
+  const digits = String(parts.length).length
+  const zipPaths = parts.map((_part, i) => parts.length === 1
+    ? path.join(dir, `NFe-Export-${timestamp}.zip`)
+    : path.join(dir, `NFe-Export-${timestamp}-parte${String(i + 1).padStart(digits, '0')}.zip`))
 
-  try {
-    await new Promise((resolve, reject) => {
-      const output = createWriteStream(zipPath)
-      const archive = new (getZipArchive())({ zlib: { level: 9 } })
-
-      output.on('close', resolve)
-      output.on('error', reject)
-      archive.on('error', reject)
-      archive.pipe(output)
-
-      for (const item of validItems) {
-        archive.append(toBuffer(item.xmlContent), { name: fileNameFor(item) })
+  for (let i = 0; i < parts.length; i++) {
+    try {
+      await writeZip(zipPaths[i], parts[i])
+    } catch (err) {
+      if (['EBUSY', 'EPERM', 'EACCES'].includes(err.code)) {
+        return {
+          ok: false,
+          message: `Não foi possível salvar "${path.basename(zipPaths[i])}": o destino está aberto em outro programa ` +
+            'ou sem permissão de escrita. Feche-o e tente novamente.'
+        }
       }
-
-      archive.finalize()
-    })
-  } catch (err) {
-    if (['EBUSY', 'EPERM', 'EACCES'].includes(err.code)) {
-      return {
-        ok: false,
-        message: `Não foi possível salvar "${path.basename(zipPath)}": o destino está aberto em outro programa ` +
-          'ou sem permissão de escrita. Feche-o e tente novamente.'
-      }
+      throw err
     }
-    throw err
   }
 
-  return { ok: true, path: zipPath, fileCount: validItems.length }
+  return { ok: true, path: zipPaths[0], paths: zipPaths, dir, fileCount: validItems.length }
 }
 
 export async function downloadLogXlsx (items, period) {

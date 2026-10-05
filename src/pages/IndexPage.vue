@@ -399,9 +399,13 @@ async function downloadZip () {
     const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
     const result = await window.api.export.downloadZip(toPlain(queryStore.selected), period)
     exportOk.value = result.ok
-    exportMessage.value = result.ok
-      ? `Arquivo salvo em ${result.path} (${result.fileCount} XML(s))`
-      : result.message
+    if (!result.ok) {
+      exportMessage.value = result.message
+    } else if (result.paths.length > 1) {
+      exportMessage.value = `${result.paths.length} arquivos .zip salvos em ${result.dir} (${result.fileCount} XML(s))`
+    } else {
+      exportMessage.value = `Arquivo salvo em ${result.path} (${result.fileCount} XML(s))`
+    }
   } catch (err) {
     exportOk.value = false
     exportMessage.value = err.message ?? String(err)

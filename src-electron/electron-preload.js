@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld('api', {
   settings: {
     getDestinationFolder: invoke('settings:getDestinationFolder'),
     setDestinationFolder: invoke('settings:setDestinationFolder'),
+    getZipPartSizeMb: invoke('settings:getZipPartSizeMb'),
+    setZipPartSizeMb: invoke('settings:setZipPartSizeMb'),
     getSearchFolders: invoke('settings:getSearchFolders'),
     addSearchFolder: invoke('settings:addSearchFolder'),
     removeSearchFolder: invoke('settings:removeSearchFolder'),

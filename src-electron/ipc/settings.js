@@ -16,6 +16,19 @@ export async function setDestinationFolder () {
   return result.filePaths[0]
 }
 
+// Tamanho máximo (em MB) de cada parte do .zip exportado.
+export function getZipPartSizeMb () {
+  return store.get('zipPartSizeMb')
+}
+
+export function setZipPartSizeMb (value) {
+  const sizeMb = Number(value)
+  if (Number.isFinite(sizeMb) && sizeMb >= 1) {
+    store.set('zipPartSizeMb', sizeMb)
+  }
+  return store.get('zipPartSizeMb')
+}
+
 export function getSearchFolders () {
   return store.get('searchFolders')
 }

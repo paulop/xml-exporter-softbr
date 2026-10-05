@@ -7,7 +7,7 @@ Para isso, o app:
 - Conecta diretamente no(s) SQL Server(s) onde o ERP grava as notas (sem middleware nem exportação intermediária) — **cada conexão cadastrada representa um computador/caixa diferente**, normalmente com séries próprias, e clicar em "Consultar" sempre percorre **todas** as conexões configuradas e concatena o resultado num lugar só. É esse "unir as fontes" que é o objetivo central do app — sem ele, cada caixa ficaria com seu próprio lote separado e a contabilidade teria que juntar manualmente.
 - Deixa a consulta SQL configurável, já que o nome das tabelas/colunas varia entre instalações do ERP (a mesma consulta roda em todas as conexões).
 - Executa um pipeline de validação e recuperação automática antes da exportação, para reduzir lotes incompletos ou com XML corrompido chegando à contabilidade.
-- Exporta o resultado final em `.zip`, com cada arquivo nomeado pela chave de acesso da nota.
+- Exporta o resultado final em `.zip`, com cada arquivo nomeado pela chave de acesso da nota. Se passar do tamanho máximo configurado (padrão 20 MB), é dividido em vários `.zip` independentes (`-parte1`, `-parte2`...).
 
 ## Consulta unificada de múltiplas conexões
 
