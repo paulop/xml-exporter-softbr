@@ -5,15 +5,11 @@
         <div class="text-h6">{{ isEdit ? 'Editar conexão' : 'Nova conexão' }}</div>
       </q-card-section>
 
-      <q-card-section class="q-gutter-sm">
+      <q-card-section class="q-gutter-y-sm">
         <q-input v-model="form.name" label="Nome (ex: Filial 1)" dense />
-        <div class="row q-col-gutter-sm">
-          <div class="col-8">
-            <q-input v-model="form.host" label="Host / IP" dense />
-          </div>
-          <div class="col-4">
-            <q-input v-model.number="form.port" label="Porta" type="number" dense />
-          </div>
+        <div class="row no-wrap" style="gap: 8px">
+          <q-input v-model="form.host" label="Host / IP" dense class="col" />
+          <q-input v-model.number="form.port" label="Porta" type="number" dense style="width: 110px" />
         </div>
         <q-input v-model="form.database" label="Banco de dados" dense />
         <q-input v-model="form.user" label="Usuário" dense />

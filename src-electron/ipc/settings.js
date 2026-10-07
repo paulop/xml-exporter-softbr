@@ -16,14 +16,36 @@ export async function setDestinationFolder () {
   return result.filePaths[0]
 }
 
-// Dados da empresa (a licença ainda não tem origem — por ora só o CNPJ).
+// Dados da empresa (a licença ainda não tem origem — por ora CNPJ e nome fantasia).
 export function getCompany () {
   return store.get('company')
 }
 
 export function setCompany (payload) {
-  store.set('company', { cnpj: String(payload?.cnpj ?? '') })
+  store.set('company', {
+    cnpj: String(payload?.cnpj ?? ''),
+    name: String(payload?.name ?? '')
+  })
   return store.get('company')
+}
+
+// Consulta o nome fantasia (ou a razão social, se não houver) pelo CNPJ na ReceitaWS.
+// Feito no main process pra não esbarrar em CORS. Retorna '' se não achar.
+export async function lookupCnpj (cnpj) {
+  const digits = String(cnpj ?? '').replace(/\D/g, '')
+  if (digits.length !== 14) return ''
+  try {
+    const res = await fetch(`https://receitaws.com.br/v1/cnpj/${digits}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000)
+    })
+    if (!res.ok) return ''
+    const data = await res.json()
+    if (data?.status === 'ERROR') return ''
+    return String(data?.fantasia || data?.nome || '').trim()
+  } catch {
+    return ''
+  }
 }
 
 // Contato do contador, destino do envio do .zip de XML.

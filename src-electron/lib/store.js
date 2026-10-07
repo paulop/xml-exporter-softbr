@@ -30,7 +30,7 @@ const schema = {
   },
   company: {
     type: 'object',
-    default: { cnpj: '' }
+    default: { cnpj: '', name: '' }
   },
   accountant: {
     type: 'object',

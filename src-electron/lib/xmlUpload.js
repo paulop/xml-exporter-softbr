@@ -97,7 +97,7 @@ export async function uploadZip ({ cnpj, filePath, filename, onProgress = () => 
 
 // Passo 3: só depois do PUT com 200 (o serviço confere se o arquivo existe).
 // O link no email expira no padrão do serviço (7 dias).
-export async function sendDownloadEmail ({ cnpj, key, to, name, message }) {
+export async function sendDownloadEmail ({ cnpj, key, to, empresa, contador, arquivo, periodo, message }) {
   let res
   try {
     res = await fetch(SEND_EMAIL_ENDPOINT, {
@@ -107,7 +107,10 @@ export async function sendDownloadEmail ({ cnpj, key, to, name, message }) {
         cnpj,
         key,
         to: to.slice(0, MAX_EMAIL_RECIPIENTS),
-        ...(name ? { name: name.slice(0, 100) } : {}),
+        empresa,
+        contador,
+        arquivo,
+        periodo,
         ...(message ? { message: message.slice(0, 1000) } : {})
       })
     })

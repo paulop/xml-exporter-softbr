@@ -23,6 +23,16 @@
           (v) => !v || isValidCnpj(v) || 'CNPJ inválido'
         ]"
         hide-bottom-space
+        @update:model-value="onCnpjInput"
+      />
+
+      <q-input
+        v-model="form.name"
+        filled
+        dense
+        label="Nome (fantasia)"
+        :loading="lookingUp"
+        hide-bottom-space
       />
 
       <q-input
@@ -57,8 +67,22 @@ const settingsStore = useSettingsStore()
 // e, ao salvar, segue pra próxima tela pendente.
 const setup = computed(() => !!route.query.setup)
 
-const form = reactive({ cnpj: '' })
+const form = reactive({ cnpj: '', name: '' })
 const saving = ref(false)
+const lookingUp = ref(false)
+
+// Ao completar um CNPJ válido, busca o nome fantasia e preenche o campo.
+// Só sobrescreve se a consulta retornar algo, pra não apagar edição manual à toa.
+async function onCnpjInput (value) {
+  if (!value || value.length !== 14 || !isValidCnpj(value)) return
+  lookingUp.value = true
+  try {
+    const name = await window.api.settings.lookupCnpj(value)
+    if (name && form.cnpj === value) form.name = name
+  } finally {
+    lookingUp.value = false
+  }
+}
 
 // A licença ainda não tem de onde vir — fica só informativo até existir.
 const licenseLabel = 'Não disponível'

@@ -138,8 +138,15 @@ export async function downloadZip (items, period, onProgress = () => {}) {
     ...validItems.map((item) => ({ name: `xml/${fileNameFor(item)}`, data: toBuffer(item.xmlContent) }))
   ]
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const zipPath = path.join(dir, `NFe-Export-${timestamp}.zip`)
+  // Nome: "<CNPJ>-<fantasia>-<AAAA.MM da data inicial>.zip".
+  const company = store.get('company')
+  const [year, month] = String(period?.dataInicial ?? '').split('-')
+  const baseName = [
+    company?.cnpj,
+    sanitizeFileName(company?.name).trim(),
+    year && month ? `${year}.${month}` : ''
+  ].filter(Boolean).join('-')
+  const zipPath = path.join(dir, `${baseName || 'NFe-Export'}.zip`)
 
   onProgress(`Compactando ${validItems.length} XML(s) no arquivo .zip...`)
   try {
@@ -169,13 +176,20 @@ function formatIsoDate (iso) {
 // total)` alimenta a barra de progresso. O `key` de cada envio é guardado
 // em `uploadHistory`, já que as URLs devolvidas pelo serviço expiram,
 // junto com os emails de destino escolhidos no diálogo de envio.
-export async function sendZip (items, period, emails, onProgress = () => {}, onUploadProgress = () => {}) {
+export async function sendZip (items, period, emails, onProgress = () => {}, onUploadProgress = () => {}, existingZip = null) {
   const cnpj = store.get('company')?.cnpj
   if (!cnpj) {
     return { ok: false, message: 'Cadastre o CNPJ da empresa (menu Empresa) antes de enviar.' }
   }
 
-  const zip = await downloadZip(items, period, onProgress)
+  // Reenvio: se o .zip de um envio anterior desta validação ainda existe no
+  // disco, manda ele de novo em vez de gerar tudo outra vez.
+  let zip = null
+  if (existingZip?.path) {
+    const stillThere = await fs.access(existingZip.path).then(() => true, () => false)
+    if (stillThere) zip = { ok: true, path: existingZip.path, fileCount: existingZip.fileCount }
+  }
+  if (!zip) zip = await downloadZip(items, period, onProgress)
   if (!zip.ok) return zip
 
   onProgress('Enviando .zip para a contabilidade...')
@@ -200,11 +214,23 @@ export async function sendZip (items, period, emails, onProgress = () => {}, onU
   let emailError = null
   try {
     const periodo = `${formatIsoDate(period?.dataInicial)} a ${formatIsoDate(period?.dataFinal)}`
+    // Contrato com o backend: manda todos os dados e é ele quem decide
+    // assunto, saudação e corpo do email.
+    const company = store.get('company')
+    const accountant = store.get('accountant')
     await sendDownloadEmail({
       cnpj: uploaded.cnpj ?? cnpj,
       key: uploaded.key,
       to: emails,
-      name: store.get('accountant')?.name,
+      empresa: { cnpj: company?.cnpj ?? '', nome: company?.name ?? '' },
+      contador: {
+        cnpj: accountant?.cnpj ?? '',
+        nome: accountant?.name ?? '',
+        whatsapp: accountant?.whatsapp ?? '',
+        email: accountant?.email ?? ''
+      },
+      arquivo: { nome: path.basename(zip.path), quantidadeXml: zip.fileCount },
+      periodo: { inicio: period?.dataInicial ?? '', fim: period?.dataFinal ?? '' },
       message: `Segue o arquivo com ${zip.fileCount} XML(s) de notas fiscais e o relatório de auditoria, ` +
         `referente ao período de ${periodo}.`
     })

@@ -6,7 +6,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const destinationFolder = ref('')
   const searchFolders = ref([])
   const nfeCopyFolders = ref([])
-  const company = ref({ cnpj: '' })
+  const company = ref({ cnpj: '', name: '' })
   const accountant = ref({ name: '', cnpj: '', whatsapp: '', email: '' })
   const sql = ref('')
   const defaultSql = ref('')

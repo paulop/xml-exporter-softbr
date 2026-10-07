@@ -208,9 +208,9 @@
           color="secondary"
           outline
           :icon="queryStore.uploaded ? 'check' : 'send'"
-          :label="queryStore.uploaded ? 'Enviado' : 'Enviar'"
+          :label="queryStore.uploaded ? 'Reenviar' : 'Enviar'"
           :loading="sending"
-          :disable="busy || !queryStore.validated || queryStore.uploaded"
+          :disable="busy || !queryStore.validated"
           @click="sendDialogOpen = true"
         />
         <q-tooltip v-if="!queryStore.validated">
@@ -218,8 +218,7 @@
           remove duplicadas e define quais notas entram no .zip.
         </q-tooltip>
         <q-tooltip v-else-if="queryStore.uploaded">
-          Já enviado para a contabilidade nesta validação.
-          Rode "Validar / Auditar" de novo para enviar outra vez.
+          Já enviado nesta validação. Reenviar usa o mesmo .zip, sem gerar os arquivos de novo.
         </q-tooltip>
       </div>
       <div>
@@ -486,8 +485,8 @@ function formatMb (bytes) {
 }
 
 // Gera o .zip (mesmo fluxo do "Baixar .zip") e envia pro storage da SoftBR.
-// Uma vez por validação: depois de enviado, o botão trava até validar de novo.
-// `emails` vem do diálogo de envio (email do contador, editável por envio).
+// Depois de enviado, o botão vira "Reenviar" e manda o mesmo .zip já gerado
+// (até validar ou consultar de novo). `emails` vem do diálogo de envio (email do contador, editável por envio).
 async function send (emails) {
   sending.value = true
   exportProgress.value = ''
@@ -498,12 +497,17 @@ async function send (emails) {
   const unsubscribeUpload = window.api.export.onUploadProgress((progress) => { uploadProgress.value = progress })
   try {
     const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
-    const result = await window.api.export.sendZip(toPlain(queryStore.selected), period, emails)
+    const result = await window.api.export.sendZip(
+      toPlain(queryStore.selected),
+      period,
+      emails,
+      toPlain(queryStore.uploaded)
+    )
     exportOk.value = result.ok
     if (!result.ok) {
       exportMessage.value = result.message
     } else {
-      queryStore.uploaded = true
+      queryStore.uploaded = { path: result.path, fileCount: result.fileCount }
       exportMessage.value = result.emailError
         ? `Arquivo enviado (${result.fileCount} XML(s) + relatório), mas o email não foi enviado: ` +
           `${result.emailError} Cópia salva em ${result.path}`

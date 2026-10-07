@@ -26,13 +26,14 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('export:downloadOne', (_e, item) => exportIpc.downloadOne(item))
   ipcMain.handle('export:downloadZip', (e, items, period) =>
     exportIpc.downloadZip(items, period, (message) => e.sender.send('export:progress', message)))
-  ipcMain.handle('export:sendZip', (e, items, period, emails) =>
+  ipcMain.handle('export:sendZip', (e, items, period, emails, existingZip) =>
     exportIpc.sendZip(
       items,
       period,
       emails,
       (message) => e.sender.send('export:progress', message),
-      (sent, total) => e.sender.send('export:uploadProgress', { sent, total })
+      (sent, total) => e.sender.send('export:uploadProgress', { sent, total }),
+      existingZip
     ))
   ipcMain.handle('export:downloadReceiptPdf', (_e, payload) => exportIpc.downloadReceiptPdf(payload))
   ipcMain.handle('export:downloadReportCsv', (_e, payload) => exportIpc.downloadReportCsv(payload))
@@ -41,7 +42,8 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('settings:setDestinationFolder', () => settings.setDestinationFolder())
   ipcMain.handle('settings:getCompany', () => settings.getCompany())
   ipcMain.handle('settings:setCompany', (_e, payload) => settings.setCompany(payload))
-  ipcMain.handle('settings:getAccountant', () => settings.getAccountant())
+  ipcMain.handle('settings:lookupCnpj', (_e, cnpj) => settings.lookupCnpj(cnpj))
+  ipcMain.handle('settings:getAccountant',() => settings.getAccountant())
   ipcMain.handle('settings:setAccountant', (_e, payload) => settings.setAccountant(payload))
   ipcMain.handle('settings:getSearchFolders', () => settings.getSearchFolders())
   ipcMain.handle('settings:addSearchFolder', () => settings.addSearchFolder())

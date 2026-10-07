@@ -312,7 +312,7 @@ async function run () {
   running.value = true
   queryStore.validating = true
   queryStore.validated = false
-  queryStore.uploaded = false
+  queryStore.uploaded = null
   cancelling.value = false
   progress.value = { step: 0, totalSteps: 7 }
 

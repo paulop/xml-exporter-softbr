@@ -14,16 +14,7 @@
       Dados de contato usados no envio do .zip de XML para a contabilidade.
     </div>
 
-    <q-form class="q-gutter-sm" style="max-width: 420px" @submit="save">
-      <q-input
-        v-model="form.name"
-        filled
-        dense
-        label="Contador"
-        :rules="[(v) => !setup || !!v.trim() || 'Informe o contador']"
-        hide-bottom-space
-      />
-
+    <q-form class="q-gutter-sm" style="max-width: 300px" @submit="save">
       <q-input
         v-model="form.cnpj"
         filled
@@ -33,7 +24,17 @@
         unmasked-value
         :rules="[(v) => !v || isValidCnpj(v) || 'CNPJ inválido']"
         hide-bottom-space
-        style="max-width: 220px"
+        @update:model-value="onCnpjInput"
+      />
+
+      <q-input
+        v-model="form.name"
+        filled
+        dense
+        label="Nome do contador"
+        :loading="lookingUp"
+        :rules="[(v) => !setup || !!v.trim() || 'Informe o contador']"
+        hide-bottom-space
       />
 
       <q-input
@@ -45,7 +46,6 @@
         unmasked-value
         :rules="[(v) => !v || v.length === 11 || 'Informe DDD + 9 dígitos']"
         hide-bottom-space
-        style="max-width: 220px"
       >
         <template #prepend><q-icon name="chat" size="18px" /></template>
       </q-input>
@@ -91,6 +91,19 @@ const setup = computed(() => !!route.query.setup)
 
 const form = reactive({ name: '', cnpj: '', whatsapp: '', email: '' })
 const saving = ref(false)
+const lookingUp = ref(false)
+
+// Ao completar um CNPJ válido, busca o nome (fantasia ou razão social) e preenche o campo.
+async function onCnpjInput (value) {
+  if (!value || value.length !== 14 || !isValidCnpj(value)) return
+  lookingUp.value = true
+  try {
+    const name = await window.api.settings.lookupCnpj(value)
+    if (name && form.cnpj === value) form.name = name
+  } finally {
+    lookingUp.value = false
+  }
+}
 
 async function save () {
   saving.value = true

@@ -21,9 +21,10 @@ export const useQueryStore = defineStore('query', () => {
   // resultado da consulta atual; uma nova consulta exige validar de novo.
   const validating = ref(false)
   const validated = ref(false)
-  // O envio pra contabilidade acontece uma vez por validação: depois de
-  // enviado, só libera de novo ao validar outra vez.
-  const uploaded = ref(false)
+  // Depois de enviado pra contabilidade guarda o .zip gerado ({ path, fileCount })
+  // pra reenviar o mesmo arquivo sem gerar tudo de novo. Zera ao validar ou
+  // consultar outra vez, já que o conteúdo do .zip deixa de valer.
+  const uploaded = ref(null)
 
   // Cada clique em "Consultar" gera um token novo. Se o usuário mudar o
   // período e consultar de novo antes da primeira resposta chegar, a
@@ -56,7 +57,7 @@ export const useQueryStore = defineStore('query', () => {
     lastError.value = ''
     groupFilter.value = null
     validated.value = false
-    uploaded.value = false
+    uploaded.value = null
     // Limpa a tabela imediatamente: o resultado é sempre a consulta do
     // período atual, nunca um acúmulo do período anterior.
     rows.value = []

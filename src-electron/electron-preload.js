@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('api', {
     setDestinationFolder: invoke('settings:setDestinationFolder'),
     getCompany: invoke('settings:getCompany'),
     setCompany: invoke('settings:setCompany'),
+    lookupCnpj: invoke('settings:lookupCnpj'),
     getAccountant: invoke('settings:getAccountant'),
     setAccountant: invoke('settings:setAccountant'),
     getSearchFolders: invoke('settings:getSearchFolders'),
