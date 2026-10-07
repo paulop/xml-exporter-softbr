@@ -22,16 +22,9 @@
         <q-btn flat dense round icon="settings" aria-label="Menu">
           <q-menu anchor="bottom right" self="top right">
             <q-list style="min-width: 220px">
-              <q-item-label header>Navegação</q-item-label>
-
               <q-item v-close-popup clickable to="/" exact>
                 <q-item-section avatar><q-icon name="receipt_long" /></q-item-section>
                 <q-item-section>Notas fiscais</q-item-section>
-              </q-item>
-
-              <q-item v-close-popup clickable to="/company">
-                <q-item-section avatar><q-icon name="business" /></q-item-section>
-                <q-item-section>Empresa</q-item-section>
               </q-item>
 
               <q-separator />
@@ -42,14 +35,14 @@
                 <q-item-section>Conexões</q-item-section>
               </q-item>
 
-              <q-item v-close-popup clickable to="/settings/sql">
-                <q-item-section avatar><q-icon name="code" /></q-item-section>
-                <q-item-section>Consulta SQL</q-item-section>
-              </q-item>
-
               <q-item v-close-popup clickable to="/settings/export">
                 <q-item-section avatar><q-icon name="folder_zip" /></q-item-section>
                 <q-item-section>Pastas</q-item-section>
+              </q-item>
+
+              <q-item v-close-popup clickable to="/company">
+                <q-item-section avatar><q-icon name="business" /></q-item-section>
+                <q-item-section>Empresa</q-item-section>
               </q-item>
 
               <q-item v-close-popup clickable to="/settings/accountant">

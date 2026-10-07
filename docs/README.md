@@ -11,7 +11,7 @@ Para isso, o app:
 
 ## Consulta unificada de múltiplas conexões
 
-`query.run` (em [ipc/query.js](../src-electron/ipc/query.js)) roda a consulta SQL configurada em paralelo contra **todas** as conexões cadastradas (`Promise.allSettled`), não só a conexão "ativa". Cada linha retornada ganha um campo `conexao` com o nome da conexão de origem (mostrado como coluna na tabela principal), o que ajuda a rastrear de qual caixa veio cada nota quando a numeração ficar misturada entre fontes. Se uma conexão específica falhar (rede fora do ar, credencial errada), as outras continuam normalmente — o erro daquela conexão só vira um aviso, sem travar a consulta das demais; só dá erro de verdade se **todas** falharem ou se nenhuma conexão estiver cadastrada.
+`query.run` (em [ipc/query.js](../src-electron/ipc/query.js)) roda a consulta SQL configurada em paralelo contra **todas** as conexões cadastradas (`Promise.allSettled`). Cada linha retornada ganha um campo `conexao` com o nome da conexão de origem (mostrado como coluna na tabela principal), o que ajuda a rastrear de qual caixa veio cada nota quando a numeração ficar misturada entre fontes. Se uma conexão específica falhar (rede fora do ar, credencial errada), as outras continuam normalmente — o erro daquela conexão só vira um aviso, sem travar a consulta das demais; só dá erro de verdade se **todas** falharem ou se nenhuma conexão estiver cadastrada.
 
 Como a detecção de lacunas (etapa 3 abaixo) agrupa por série, esse modelo assume que cada computador/caixa usa séries que não se repetem entre si — é assim que as instalações reais são configuradas, então a consolidação não mistura sequências de fontes diferentes dentro do mesmo grupo.
 
@@ -79,6 +79,13 @@ O botão **"Enviar"** gera o `.zip` exatamente como **"Baixar .zip"** (uma cópi
 - **Email com o link de download:** depois do `PUT` com 200, `POST https://webhook.softbr.net/webhook/xml-send-email` com `{ cnpj, key, to, name, message }` faz o serviço mandar aos destinatários um link de download do `.zip`, válido por 7 dias (padrão do serviço). `cnpj` e `key` são os devolvidos no passo 1 (o `key` precisa começar com `<cnpj>/`), `name` é o nome do contador e `message` cita a quantidade de XMLs e o período. Se só o email falhar, o envio do arquivo continua valendo: a tela mostra um aviso em laranja com o motivo, e o histórico registra `emailSent: false`.
 - **Histórico:** o `key` de cada envio (identificador permanente do arquivo no storage, já que as URLs expiram) fica guardado em `uploadHistory` nas configurações do app, junto com o nome do arquivo, o tamanho, o período e a data do envio.
 - **Erros:** 400 do webhook mostra a mensagem retornada pelo serviço; 403 no passo 1 indica CNPJ sem licença ativa. Em qualquer falha de envio, o `.zip` continua salvo localmente e a mensagem informa onde.
+
+## Envio mensal automático (menu Contador)
+
+Duas opções no fim da página **Contador**:
+
+- **Abrir o sistema automaticamente:** ao salvar ligada, cria no Agendador de Tarefas do Windows a tarefa "SoftBR - Gerador de Arquivos XML - Envio mensal", que abre o app com `--auto` na primeira segunda-feira de cada mês, às 8h. Com `StartWhenAvailable`, se o PC estiver desligado no horário, o Windows abre o app assim que ele for ligado. Desligar e salvar remove a tarefa. Ver [scheduledTask.js](../src-electron/lib/scheduledTask.js). Só funciona na versão instalada (em dev o `execPath` é o electron.exe cru).
+- **Enviar sem revisar:** na abertura automática, o app consulta o mês anterior inteiro e roda "Validar / Auditar". Ligada, envia direto para o email do contador; desligada, para aí e espera o usuário revisar e clicar em "Enviar". Ver `runMonthlyAuto` em [IndexPage.vue](../src/pages/IndexPage.vue).
 
 ## Pastas de NF-e avulsas (cópia direta por período)
 

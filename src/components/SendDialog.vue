@@ -60,7 +60,7 @@
         </span>
 
         <div class="text-caption text-grey q-mt-sm">
-          Cada destinatário recebe por email um link para baixar o .zip (válido por 7 dias).
+          Cada destinatário recebe por email um link para baixar o .zip.
           Alterações aqui valem só para este envio. Para mudar o email padrão, use o menu Contador.
         </div>
       </q-card-section>

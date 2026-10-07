@@ -8,10 +8,6 @@ const schema = {
     type: 'array',
     default: []
   },
-  activeConnectionId: {
-    type: ['string', 'null'],
-    default: null
-  },
   customSql: {
     type: ['string', 'null'],
     default: null
@@ -34,7 +30,7 @@ const schema = {
   },
   accountant: {
     type: 'object',
-    default: { name: '', cnpj: '', whatsapp: '', email: '' }
+    default: { name: '', cnpj: '', whatsapp: '', email: '', autoOpen: false, sendWithoutReview: false }
   },
   uploadHistory: {
     type: 'array',
@@ -84,7 +80,6 @@ export function migrateLegacyConfigIfEmpty () {
     if (!Array.isArray(legacy.connections) || legacy.connections.length === 0) continue
 
     store.set('connections', legacy.connections)
-    if (legacy.activeConnectionId) store.set('activeConnectionId', legacy.activeConnectionId)
     if (legacy.customSql) store.set('customSql', legacy.customSql)
     if (legacy.destinationFolder) store.set('destinationFolder', legacy.destinationFolder)
     if (Array.isArray(legacy.searchFolders) && legacy.searchFolders.length > 0) {

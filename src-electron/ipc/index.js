@@ -6,6 +6,11 @@ import * as settings from './settings.js'
 import * as updater from './updater.js'
 import * as validation from './validation.js'
 import { migrateLegacyConfigIfEmpty } from '../lib/store.js'
+import { AUTO_RUN_ARG } from '../lib/scheduledTask.js'
+
+// Aberto pela tarefa agendada? Lido uma vez só pela tela de notas, pra a
+// execução automática não repetir ao navegar de volta pra ela.
+let pendingAutoRun = process.argv.includes(AUTO_RUN_ARG)
 
 export function registerIpcHandlers (mainWindow) {
   migrateLegacyConfigIfEmpty()
@@ -14,8 +19,6 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('connections:save', (_e, payload) => connections.saveConnection(payload))
   ipcMain.handle('connections:delete', (_e, id) => connections.deleteConnection(id))
   ipcMain.handle('connections:test', (_e, payload) => connections.testConnectionPayload(payload))
-  ipcMain.handle('connections:setActive', (_e, id) => connections.setActiveConnection(id))
-  ipcMain.handle('connections:getActive', () => connections.getActiveConnection())
 
   ipcMain.handle('query:run', (_e, payload) => query.run(payload))
   ipcMain.handle('query:getSql', () => query.getSql())
@@ -43,8 +46,9 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('settings:getCompany', () => settings.getCompany())
   ipcMain.handle('settings:setCompany', (_e, payload) => settings.setCompany(payload))
   ipcMain.handle('settings:lookupCnpj', (_e, cnpj) => settings.lookupCnpj(cnpj))
-  ipcMain.handle('settings:getAccountant',() => settings.getAccountant())
+  ipcMain.handle('settings:getAccountant', () => settings.getAccountant())
   ipcMain.handle('settings:setAccountant', (_e, payload) => settings.setAccountant(payload))
+  ipcMain.handle('settings:syncAutoOpenTask', () => settings.syncAutoOpenTask())
   ipcMain.handle('settings:getSearchFolders', () => settings.getSearchFolders())
   ipcMain.handle('settings:addSearchFolder', () => settings.addSearchFolder())
   ipcMain.handle('settings:removeSearchFolder', (_e, folderPath) => settings.removeSearchFolder(folderPath))
@@ -58,6 +62,11 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('validation:cancel', () => validation.cancel())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
+  ipcMain.handle('app:consumeAutoRun', () => {
+    const auto = pendingAutoRun
+    pendingAutoRun = false
+    return auto
+  })
   ipcMain.handle('app:checkForUpdates', () => updater.checkForUpdates())
   ipcMain.handle('app:downloadUpdate', () => updater.downloadUpdate())
   ipcMain.handle('app:installUpdate', () => updater.installUpdate())

@@ -1,5 +1,6 @@
 import { dialog, shell } from 'electron'
 import { store } from '../lib/store.js'
+import { syncScheduledTask } from '../lib/scheduledTask.js'
 
 const TOTVS_PORTAL_URL = 'https://tec.totvshospitalidade.com/auth/login'
 
@@ -58,9 +59,18 @@ export function setAccountant (payload) {
     name: String(payload?.name ?? ''),
     cnpj: String(payload?.cnpj ?? ''),
     whatsapp: String(payload?.whatsapp ?? ''),
-    email: String(payload?.email ?? '')
+    email: String(payload?.email ?? ''),
+    // Abrir sozinho na 1ª segunda-feira do mês (tarefa agendada do Windows)
+    // e, nessa abertura, enviar sem esperar o usuário revisar a validação.
+    autoOpen: !!payload?.autoOpen,
+    sendWithoutReview: !!payload?.sendWithoutReview
   })
   return store.get('accountant')
+}
+
+// Cria ou remove a tarefa agendada conforme o `autoOpen` salvo.
+export function syncAutoOpenTask () {
+  return syncScheduledTask(!!store.get('accountant')?.autoOpen)
 }
 
 export function getSearchFolders () {

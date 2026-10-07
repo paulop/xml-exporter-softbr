@@ -50,29 +50,12 @@ export function saveConnection (payload) {
 
   store.set('connections', next)
 
-  if (isNew && connections.length === 0) {
-    store.set('activeConnectionId', id)
-  }
-
   return toPublic(record)
 }
 
 export function deleteConnection (id) {
   const connections = store.get('connections').filter((c) => c.id !== id)
   store.set('connections', connections)
-  if (store.get('activeConnectionId') === id) {
-    store.set('activeConnectionId', connections[0]?.id ?? null)
-  }
-}
-
-export function setActiveConnection (id) {
-  store.set('activeConnectionId', id)
-}
-
-export function getActiveConnection () {
-  const id = store.get('activeConnectionId')
-  const connection = store.get('connections').find((c) => c.id === id)
-  return connection ? toPublic(connection) : null
 }
 
 export function getConnectionWithPassword (id) {

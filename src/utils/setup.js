@@ -6,7 +6,8 @@ export async function pendingSetupRoute () {
   if (!company?.cnpj) return '/company'
 
   const accountant = await window.api.settings.getAccountant()
-  const hasAccountant = Object.values(accountant ?? {}).some((v) => String(v ?? '').trim())
+  // Só os campos de contato: os toggles de agendamento (booleanos) não contam.
+  const hasAccountant = ['name', 'cnpj', 'whatsapp', 'email'].some((k) => String(accountant?.[k] ?? '').trim())
   if (!hasAccountant) return '/settings/accountant'
 
   return null

@@ -358,6 +358,9 @@ async function run () {
   }
 }
 
+// A tela de notas chama `run` na execução automática mensal.
+defineExpose({ run })
+
 async function stop () {
   cancelling.value = true
   await window.api.validation.cancel()

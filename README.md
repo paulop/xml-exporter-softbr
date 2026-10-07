@@ -34,7 +34,7 @@ Para publicar manualmente (sem CI), rode `GH_TOKEN=xxxx npx quasar build -m elec
 
 1. Na primeira abertura (ou enquanto estiverem vazias), o app começa pelas telas **Empresa** (CNPJ da empresa licenciada) e **Contador** (nome e email de quem recebe os XMLs), nessa ordem. Depois de salvar as duas, segue para a tela principal.
 2. Vá em **Configurações → Conexões** e cadastre a conexão com o SQL Server da(s) filial(is).
-3. Em **Configurações → Consulta SQL**, ajuste o SQL padrão caso os nomes de tabela/coluna do seu banco sejam diferentes (precisa manter os parâmetros `@dataInicial` e `@dataFinal`).
+3. Em **Configurações → Conexões**, abaixo da lista de conexões, ajuste o SQL padrão caso os nomes de tabela/coluna do seu banco sejam diferentes (precisa manter os parâmetros `@dataInicial` e `@dataFinal`).
 4. Em **Configurações → Pastas**, escolha a pasta onde os .zip/XML serão salvos.
 5. Na tela principal, escolha o período (ou use "Mês atual"/"Mês anterior"), clique em **Consultar**, depois em **Validar / Auditar** e por fim em **Baixar .zip** ou **Enviar**.
 

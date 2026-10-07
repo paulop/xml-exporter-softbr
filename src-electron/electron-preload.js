@@ -58,9 +58,7 @@ contextBridge.exposeInMainWorld('api', {
     list: invoke('connections:list'),
     save: invoke('connections:save'),
     delete: invoke('connections:delete'),
-    test: invoke('connections:test'),
-    setActive: invoke('connections:setActive'),
-    getActive: invoke('connections:getActive')
+    test: invoke('connections:test')
   },
   query: {
     run: invoke('query:run'),
@@ -86,6 +84,7 @@ contextBridge.exposeInMainWorld('api', {
     lookupCnpj: invoke('settings:lookupCnpj'),
     getAccountant: invoke('settings:getAccountant'),
     setAccountant: invoke('settings:setAccountant'),
+    syncAutoOpenTask: invoke('settings:syncAutoOpenTask'),
     getSearchFolders: invoke('settings:getSearchFolders'),
     addSearchFolder: invoke('settings:addSearchFolder'),
     removeSearchFolder: invoke('settings:removeSearchFolder'),
@@ -101,6 +100,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   app: {
     getVersion: invoke('app:getVersion'),
+    consumeAutoRun: invoke('app:consumeAutoRun'),
     checkForUpdates: invoke('app:checkForUpdates'),
     downloadUpdate: invoke('app:downloadUpdate'),
     installUpdate: invoke('app:installUpdate'),

@@ -188,7 +188,7 @@
 
     <NotaDetailDialog v-model="detailOpen" :row="detailRow" />
 
-    <ValidationChecklist />
+    <ValidationChecklist ref="validationRef" />
 
     <SendDialog
       v-model="sendDialogOpen"
@@ -288,6 +288,7 @@ const exportOk = ref(true)
 const exportWarning = ref(false)
 const detailOpen = ref(false)
 const detailRow = ref(null)
+const validationRef = ref(null)
 
 // O que o sistema está fazendo agora, exibido ao lado do loader embaixo
 // dos botões. Vazio = ocioso (aí aparece o resultado da última exportação).
@@ -526,8 +527,47 @@ async function send (emails) {
   }
 }
 
+// Abertura pela tarefa agendada (1ª segunda-feira do mês, ver menu Contador):
+// consulta e valida o mês anterior inteiro. Com "Enviar sem revisar" ligado,
+// já envia pro email do contador; senão para e espera o usuário clicar em "Enviar".
+async function runMonthlyAuto () {
+  if (connectionsStore.connections.length === 0) {
+    $q.notify({ type: 'warning', message: 'Envio mensal automático: nenhuma conexão configurada.' })
+    return
+  }
+
+  queryStore.dataInicial = date.formatDate(date.startOfDate(new Date(), 'month'), 'YYYY-MM-DD')
+  queryStore.shiftMonth(-1)
+  await runQuery()
+  if (queryStore.lastError) return
+
+  await validationRef.value.run()
+  if (!queryStore.validated) {
+    $q.notify({ type: 'warning', message: 'Envio mensal automático: a validação não foi concluída.' })
+    return
+  }
+
+  const accountant = await window.api.settings.getAccountant()
+  const email = String(accountant?.email ?? '').trim()
+  if (accountant?.sendWithoutReview && email) {
+    await send([email])
+    return
+  }
+
+  $q.notify({
+    type: 'info',
+    timeout: 0,
+    closeBtn: 'OK',
+    message: accountant?.sendWithoutReview
+      ? `Envio mensal: ${rangeLabel.value} consultado e validado, mas o contador não tem email. ` +
+        'Revise e clique em "Enviar".'
+      : `Envio mensal: ${rangeLabel.value} consultado e validado. Revise e clique em "Enviar".`
+  })
+}
+
 onMounted(async () => {
   await connectionsStore.load()
+  if (await window.api.app.consumeAutoRun()) await runMonthlyAuto()
 })
 </script>
 
