@@ -198,6 +198,10 @@
     />
 
     <div class="row items-center justify-end q-mt-md q-gutter-sm">
+      <div v-if="lastSuccess" class="text-caption text-grey-8 row items-center no-wrap">
+        <q-icon name="history" size="18px" class="q-mr-xs" />
+        Último envio: {{ lastSuccessLabel }}
+      </div>
       <div v-if="!queryStore.validated" class="text-caption text-grey-8 row items-center no-wrap">
         <q-icon name="info" size="18px" color="primary" class="q-mr-xs" />
         Clique em "Validar / Auditar" antes de enviar ou baixar o .zip.
@@ -289,6 +293,7 @@ const exportWarning = ref(false)
 const detailOpen = ref(false)
 const detailRow = ref(null)
 const validationRef = ref(null)
+const lastSuccess = ref(null)
 
 // O que o sistema está fazendo agora, exibido ao lado do loader embaixo
 // dos botões. Vazio = ocioso (aí aparece o resultado da última exportação).
@@ -305,6 +310,20 @@ const statusMessage = computed(() => {
   return ''
 })
 const busy = computed(() => statusMessage.value !== '')
+
+// "07/10/2026 14:32 (09/2026)": quando foi enviado e de qual período.
+const lastSuccessLabel = computed(() => {
+  const last = lastSuccess.value
+  if (!last) return ''
+  const when = date.formatDate(new Date(last.uploadedAt), 'DD/MM/YYYY HH:mm')
+  const start = last.period?.dataInicial
+  const end = last.period?.dataFinal
+  if (!start) return when
+  const sameMonth = start.slice(0, 7) === String(end ?? '').slice(0, 7)
+  return sameMonth
+    ? `${when} (${start.slice(5, 7)}/${start.slice(0, 4)})`
+    : `${when} (${formatRangeDate(start)} a ${formatRangeDate(end)})`
+})
 
 const selectedCount = computed(() => queryStore.selected.length)
 const selectedTotal = computed(() =>
@@ -509,6 +528,7 @@ async function send (emails) {
       exportMessage.value = result.message
     } else {
       queryStore.uploaded = { path: result.path, fileCount: result.fileCount }
+      lastSuccess.value = result.lastSuccess ?? lastSuccess.value
       exportMessage.value = result.emailError
         ? `Arquivo enviado (${result.fileCount} XML(s) + relatório), mas o email não foi enviado: ` +
           `${result.emailError} Cópia salva em ${result.path}`
@@ -566,6 +586,7 @@ async function runMonthlyAuto () {
 }
 
 onMounted(async () => {
+  lastSuccess.value = await window.api.export.getLastSuccess()
   await connectionsStore.load()
   if (await window.api.app.consumeAutoRun()) await runMonthlyAuto()
 })

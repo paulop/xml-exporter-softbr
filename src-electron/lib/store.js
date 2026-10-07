@@ -48,6 +48,16 @@ const schema = {
 
 export const store = new Store({ name: 'config', schema })
 
+// Último envio bem-sucedido pra contabilidade, num arquivo à parte
+// (last-export.json, ao lado do config.json): sobrevive a limpar/resetar as
+// configurações e é fácil de ler de fora (suporte, script de verificação).
+export const lastExportStore = new Store({
+  name: 'last-export',
+  schema: {
+    lastSuccess: { type: ['object', 'null'], default: null }
+  }
+})
+
 // Nomes que o app já teve como productName ao longo do histórico. Até essa
 // correção, electron-main.js importava o módulo que constrói esse Store de
 // forma ESTÁTICA, e um import estático roda o código de todo o módulo

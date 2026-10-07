@@ -3,7 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import { createRequire } from 'node:module'
-import { store } from '../lib/store.js'
+import { store, lastExportStore } from '../lib/store.js'
 import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
 import { dedupeByChave } from '../lib/notaValidation.js'
 import { collectNfeFromFolders } from '../lib/nfeCopyFolders.js'
@@ -239,21 +239,31 @@ export async function sendZip (items, period, emails, onProgress = () => {}, onU
     emailError = err.message
   }
 
-  const history = store.get('uploadHistory')
-  store.set('uploadHistory', [
-    {
-      key: uploaded.key,
-      fileName: path.basename(zip.path),
-      size: uploaded.size,
-      period,
-      emails: emails ?? [],
-      emailSent: !emailError,
-      uploadedAt: new Date().toISOString()
-    },
-    ...history
-  ].slice(0, 200))
+  const entry = {
+    key: uploaded.key,
+    fileName: path.basename(zip.path),
+    size: uploaded.size,
+    period,
+    emails: emails ?? [],
+    emailSent: !emailError,
+    uploadedAt: new Date().toISOString()
+  }
+  store.set('uploadHistory', [entry, ...store.get('uploadHistory')].slice(0, 200))
+  // Sucesso = arquivo no storage, mesmo que só o email tenha falhado.
+  lastExportStore.set('lastSuccess', { ...entry, cnpj })
 
-  return { ok: true, path: zip.path, key: uploaded.key, fileCount: zip.fileCount, emailError }
+  return {
+    ok: true,
+    path: zip.path,
+    key: uploaded.key,
+    fileCount: zip.fileCount,
+    emailError,
+    lastSuccess: lastExportStore.get('lastSuccess')
+  }
+}
+
+export function getLastSuccess () {
+  return lastExportStore.get('lastSuccess')
 }
 
 export async function downloadReportCsv ({ csv, fileName }) {

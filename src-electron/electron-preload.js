@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('api', {
     downloadReceiptPdf: invoke('export:downloadReceiptPdf'),
     downloadReportCsv: invoke('export:downloadReportCsv'),
     sendZip: invoke('export:sendZip'),
+    getLastSuccess: invoke('export:getLastSuccess'),
     onProgress: onEvent('export:progress'),
     onUploadProgress: onEvent('export:uploadProgress')
   },
