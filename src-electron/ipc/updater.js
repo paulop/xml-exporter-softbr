@@ -13,7 +13,12 @@ export function initAutoUpdater (mainWindow) {
   if (wired) return
   wired = true
 
-  autoUpdater.autoDownload = false
+  // Atualização silenciosa: baixa sozinho em segundo plano e, quando o app
+  // fecha (pelo usuário ou pelo fechamento automático da execução mensal),
+  // o instalador NSIS roda sem janela (/S). Na próxima abertura já é a
+  // versão nova. Instalação "para todos os usuários" ainda pede o UAC.
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('update-available', (info) => {
     mainWindow.webContents.send('update:available', info)
@@ -41,10 +46,7 @@ export async function checkForUpdates () {
   return { ok: true }
 }
 
-export async function downloadUpdate () {
-  await autoUpdater.downloadUpdate()
-}
-
+// "Instalar agora": fecha, instala sem janela e reabre o app já atualizado.
 export function installUpdate () {
-  autoUpdater.quitAndInstall()
+  autoUpdater.quitAndInstall(true, true)
 }

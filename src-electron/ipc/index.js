@@ -70,7 +70,6 @@ export function registerIpcHandlers (mainWindow) {
     return auto
   })
   ipcMain.handle('app:checkForUpdates', () => updater.checkForUpdates())
-  ipcMain.handle('app:downloadUpdate', () => updater.downloadUpdate())
   ipcMain.handle('app:installUpdate', () => updater.installUpdate())
 
   updater.initAutoUpdater(mainWindow)

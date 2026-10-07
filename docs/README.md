@@ -100,6 +100,10 @@ Essa varredura roda junto com "Consultar" (`run` em [ipc/query.js](../src-electr
 
 **Validação de início/fim de numeração** — não é mais uma ação separada em Configurações: `validateNfeFolderSequence` roda automaticamente dentro do mesmo "Validar / Auditar" da tela principal ([ValidationChecklist.vue](../src/components/ValidationChecklist.vue) → `ipc/validation.js`), usando o período já selecionado na consulta (`dataInicial`/`dataFinal`, convertido para os meses que o período toca). O resultado aparece no mesmo "Relatório de sequência" do checklist, junto das séries de NFC-e, com a conexão "Pasta de NF-e avulsa". O botão "Validar / Auditar" também não fica mais desabilitado com zero notas no banco, pelo mesmo motivo do ZIP/Log: o lote do período pode ser só NF-e de pasta avulsa.
 
+## Atualização automática silenciosa
+
+Ver [updater.js](../src-electron/ipc/updater.js). Com `checkUpdatesOnStartup` (padrão ligado), o app verifica a release mais recente do GitHub ao abrir e, havendo versão nova, **baixa sozinho** em segundo plano (`autoDownload`). Terminado o download, o topo da tela mostra discretamente "Versão X será instalada ao fechar". Ao fechar o app (pelo usuário ou pelo fechamento automático da execução mensal), `autoInstallOnAppQuit` roda o instalador NSIS sem janela; na próxima abertura já é a versão nova. "Instalar agora" usa `quitAndInstall(true, true)`: fecha, instala sem janela e reabre. Instalação "para todos os usuários" (em Arquivos de Programas) ainda mostra o UAC do Windows.
+
 ## Resiliência a dependência faltando no pacote
 
 Já aconteceu de uma dependência (`exceljs`) ficar de fora do instalador por um descuido de configuração (`src-electron/package.json` é um manifesto **separado** do `package.json` da raiz — é dali que o processo principal do Electron instala suas próprias dependências; ver [`src-electron/package.json`](../src-electron/package.json)) e o app travar ao abrir com "Cannot find module". Duas camadas de proteção contra isso se repetir:

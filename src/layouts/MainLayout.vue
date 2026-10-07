@@ -9,15 +9,16 @@
           </q-chip>
         </q-toolbar-title>
 
-        <q-btn
-          v-if="updateReady"
-          color="positive"
-          icon="system_update"
-          label="Reiniciar e atualizar"
-          dense
-          class="q-mr-sm"
-          @click="installUpdate"
-        />
+        <!-- Atualização já baixada: instala sozinha (sem janela) ao fechar o sistema. -->
+        <div v-if="updateReady" class="row items-center no-wrap q-mr-sm text-caption">
+          <q-icon name="update" size="18px" class="q-mr-xs" />
+          <span>Versão {{ updateVersion }} será instalada ao fechar</span>
+          <q-btn flat dense no-caps size="sm" label="Instalar agora" class="q-ml-xs" @click="installUpdate" />
+          <q-tooltip>
+            A atualização já foi baixada e será instalada automaticamente, sem tela de instalação,
+            na próxima vez que o sistema for fechado. "Instalar agora" fecha, instala e reabre.
+          </q-tooltip>
+        </div>
 
         <q-btn flat dense round icon="settings" aria-label="Menu">
           <q-menu anchor="bottom right" self="top right">
@@ -77,6 +78,7 @@ import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
 const updateReady = ref(false)
+const updateVersion = ref('')
 const appVersion = ref('')
 const checkingUpdate = ref(false)
 
@@ -98,23 +100,19 @@ async function checkForUpdates () {
   }
 }
 
-let unsubscribeAvailable
 let unsubscribeDownloaded
 
 onMounted(async () => {
   appVersion.value = await window.api.app.getVersion()
 
-  unsubscribeAvailable = window.api.app.onUpdateAvailable(() => {
-    window.api.app.downloadUpdate()
-    $q.notify({ type: 'info', message: 'Nova versão disponível, baixando em segundo plano...' })
-  })
-  unsubscribeDownloaded = window.api.app.onUpdateDownloaded(() => {
+  // O download é automático (processo main); aqui só avisa quando terminou.
+  unsubscribeDownloaded = window.api.app.onUpdateDownloaded((info) => {
+    updateVersion.value = info?.version ?? ''
     updateReady.value = true
   })
 })
 
 onUnmounted(() => {
-  unsubscribeAvailable?.()
   unsubscribeDownloaded?.()
 })
 </script>
