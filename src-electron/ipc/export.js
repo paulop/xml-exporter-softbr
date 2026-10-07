@@ -5,8 +5,6 @@ import { createWriteStream } from 'node:fs'
 import { createRequire } from 'node:module'
 import { store, lastExportStore } from '../lib/store.js'
 import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
-import { dedupeByChave } from '../lib/notaValidation.js'
-import { collectNfeFromFolders } from '../lib/nfeCopyFolders.js'
 import { uploadZip, sendDownloadEmail, UploadError } from '../lib/xmlUpload.js'
 
 // archiver é CommonJS; require() evita problemas de interop ESM/CJS
@@ -79,22 +77,6 @@ export async function downloadOne (item) {
   return writeFileSafe(path.join(dir, fileNameFor(item)), toBuffer(item.xmlContent))
 }
 
-// Pastas de NF-e avulsas (configuradas à parte de `searchFolders`): não
-// passam pela busca em cascata nem precisam casar com nenhuma linha do
-// banco — é só achar, dentro do período escolhido, os XMLs que já existem e
-// somar ao lote selecionado. Em caso de chave repetida, a nota já
-// selecionada no banco (primeira na lista) tem prioridade no dedupe.
-async function withNfeFolderExtras (validItems, period) {
-  const folders = store.get('nfeCopyFolders')
-  if (!folders || folders.length === 0) return validItems
-
-  const extras = await collectNfeFromFolders(folders, period ?? {})
-  if (extras.length === 0) return validItems
-
-  const { kept } = dedupeByChave([...validItems, ...extras])
-  return kept
-}
-
 function writeZip (zipPath, entries) {
   return new Promise((resolve, reject) => {
     const output = createWriteStream(zipPath)
@@ -118,9 +100,9 @@ function writeZip (zipPath, entries) {
 // recebe uma frase curta do passo atual, exibida na tela enquanto o
 // arquivo é gerado.
 export async function downloadZip (items, period, onProgress = () => {}) {
-  const selectedItems = (items ?? []).filter((item) => item.xmlContent)
-  onProgress('Buscando NF-e nas pastas avulsas...')
-  const validItems = await withNfeFolderExtras(selectedItems, period)
+  // NF-e das pastas avulsas já vêm na seleção (a consulta as traz como a
+  // conexão "Pasta de NF-e avulsa"), então o .zip é só o que está selecionado.
+  const validItems = (items ?? []).filter((item) => item.xmlContent)
   if (validItems.length === 0) {
     return { ok: false, message: 'Nenhuma nota selecionada possui XML disponível.' }
   }
@@ -222,7 +204,7 @@ export async function sendZip (items, period, emails, onProgress = () => {}, onU
       cnpj: uploaded.cnpj ?? cnpj,
       key: uploaded.key,
       to: emails,
-      empresa: { cnpj: company?.cnpj ?? '', nome: company?.name ?? '' },
+      empresa: { cnpj: company?.cnpj ?? '', nome: company?.name ?? '', email: company?.email ?? '' },
       contador: {
         cnpj: accountant?.cnpj ?? '',
         nome: accountant?.name ?? '',

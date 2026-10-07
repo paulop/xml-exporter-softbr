@@ -63,6 +63,7 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('validation:cancel', () => validation.cancel())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
+  ipcMain.handle('app:quit', () => app.quit())
   ipcMain.handle('app:consumeAutoRun', () => {
     const auto = pendingAutoRun
     pendingAutoRun = false

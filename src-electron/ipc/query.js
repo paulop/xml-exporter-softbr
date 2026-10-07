@@ -2,6 +2,8 @@ import { getConnectionWithPassword } from './connections.js'
 import { store } from '../lib/store.js'
 import { DEFAULT_SQL, validateSql } from '../lib/default-sql.js'
 import { runQuery as runQueryDb } from '../lib/db.js'
+import { collectNfeFromFolders } from '../lib/nfeCopyFolders.js'
+import { findInaccessibleFolders } from '../lib/notaValidation.js'
 
 // Em algumas instalações a coluna de série (e às vezes número) vem como
 // texto com zero à esquerda (ex.: "004"). Sem normalizar aqui, a mesma
@@ -71,6 +73,17 @@ export async function run ({ dataInicial, dataFinal }) {
   if (rows.length === 0 && errors.length > 0) {
     throw new Error(`Não foi possível consultar nenhuma conexão:\n${errors.join('\n')}`)
   }
+
+  // NF-e das pastas avulsas entram na tabela como mais uma "conexão", pra
+  // todos os XMLs do período ficarem num lugar só (e na seleção do .zip).
+  // Se a mesma chave já veio do banco, a do banco tem prioridade.
+  const nfeFolders = store.get('nfeCopyFolders')
+  for (const folder of await findInaccessibleFolders(nfeFolders)) {
+    errors.push(`Pasta de NF-e avulsa "${folder}": pasta não encontrada ou sem acesso`)
+  }
+  const chavesBanco = new Set(rows.map((r) => r.chave).filter(Boolean))
+  const nfeRows = await collectNfeFromFolders(nfeFolders, { dataInicial, dataFinal })
+  rows.push(...nfeRows.filter((r) => !chavesBanco.has(r.chave)))
 
   const count = rows.length
   const totalValor = rows.reduce((sum, row) => sum + (Number(row.valor) || 0), 0)

@@ -13,6 +13,10 @@ import {
 // recuperar nem nota pra casar com linha nenhuma — é só achar, dentro do
 // período escolhido, os XMLs que já existem na pasta e empacotar junto.
 
+// Nome mostrado na coluna "Conexão" da tabela principal e do relatório de
+// sequência para as notas que vêm dessas pastas.
+export const NFE_AVULSA_CONEXAO = 'Pasta de NF-e avulsa'
+
 function monthsInRange (dataInicial, dataFinal) {
   const months = new Set()
   if (!dataInicial || !dataFinal) return months
@@ -86,7 +90,8 @@ export async function collectNfeFromFolders (folders, { dataInicial, dataFinal }
         xmlStatus: 'DISPONÍVEL',
         xmlContent: Buffer.from(xmlString, 'utf-8').toString('base64'),
         origem: path.basename(folder),
-        conexao: 'NF-e (pasta avulsa)',
+        conexao: NFE_AVULSA_CONEXAO,
+        nfeAvulsa: true,
         // Aparece na coluna "Observações" do log — é o que deixa claro, linha
         // a linha, que essa nota não veio do banco de dados, veio de arquivo
         // já pronto numa pasta de apoio.

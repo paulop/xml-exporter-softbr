@@ -17,7 +17,7 @@ export async function setDestinationFolder () {
   return result.filePaths[0]
 }
 
-// Dados da empresa (a licença ainda não tem origem — por ora CNPJ e nome fantasia).
+// Dados da empresa (a licença ainda não tem origem — por ora CNPJ, nome fantasia e email).
 export function getCompany () {
   return store.get('company')
 }
@@ -25,7 +25,9 @@ export function getCompany () {
 export function setCompany (payload) {
   store.set('company', {
     cnpj: String(payload?.cnpj ?? ''),
-    name: String(payload?.name ?? '')
+    name: String(payload?.name ?? ''),
+    // Recebe uma cópia do email de envio, junto com o contador.
+    email: String(payload?.email ?? '').trim()
   })
   return store.get('company')
 }

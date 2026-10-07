@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('api', {
   app: {
     getVersion: invoke('app:getVersion'),
     consumeAutoRun: invoke('app:consumeAutoRun'),
+    quit: invoke('app:quit'),
     checkForUpdates: invoke('app:checkForUpdates'),
     downloadUpdate: invoke('app:downloadUpdate'),
     installUpdate: invoke('app:installUpdate'),

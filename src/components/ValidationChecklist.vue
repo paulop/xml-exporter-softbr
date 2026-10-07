@@ -165,10 +165,12 @@
 
         <q-separator class="q-my-md" />
 
-        <div class="text-subtitle2 q-mb-sm">Relatório de sequência de NFC-e</div>
+        <div class="text-subtitle2 q-mb-sm">Relatório de sequência</div>
         <q-markup-table dense flat bordered>
           <thead>
             <tr>
+              <th class="text-left">Conexão</th>
+              <th>Tipo</th>
               <th>CNPJ</th>
               <th>Série</th>
               <th>Nº inicial</th>
@@ -179,17 +181,22 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(r, i) in reportRows" :key="i">
+            <tr v-for="(r, i) in sequenceRows" :key="i">
+              <td class="text-left">{{ r.conexao || '—' }}</td>
+              <td>{{ r.tipo }}</td>
               <td>{{ r.cnpj }}</td>
               <td>{{ r.serie }}</td>
               <td>{{ r.numeroInicial }}</td>
               <td>{{ r.numeroFinal }}</td>
               <td>{{ r.quantidadeEsperada }}</td>
               <td>{{ r.quantidadeEncontrada }}</td>
-              <td>{{ r.lacunasNaoRecuperadas.join(', ') || '—' }}</td>
+              <td>
+                <q-badge v-if="r.lacunas.length === 0" color="positive">Sequência completa</q-badge>
+                <span v-else class="text-negative">{{ r.lacunas.join(', ') }}</span>
+              </td>
             </tr>
-            <tr v-if="reportRows.length === 0">
-              <td colspan="7" class="text-center text-grey">Nenhuma série analisada.</td>
+            <tr v-if="sequenceRows.length === 0">
+              <td colspan="9" class="text-center text-grey">Nenhuma série analisada.</td>
             </tr>
           </tbody>
         </q-markup-table>
@@ -200,45 +207,10 @@
             dense
             icon="download"
             label="Baixar CSV do relatório"
-            :disable="reportRows.length === 0"
+            :disable="sequenceRows.length === 0"
             @click="downloadCsv"
           />
         </div>
-
-        <template v-if="nfeFolderValidation.length > 0">
-          <q-separator class="q-my-md" />
-
-          <div class="text-subtitle2 q-mb-sm">
-            Relatório de sequência de NF-e
-          </div>
-          <q-markup-table dense flat bordered>
-            <thead>
-              <tr>
-                <th>CNPJ</th>
-                <th>Série</th>
-                <th>Nº inicial</th>
-                <th>Nº final</th>
-                <th>Qtde esperada</th>
-                <th>Qtde encontrada</th>
-                <th>Lacunas</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(r, i) in nfeFolderValidation" :key="i">
-                <td>{{ r.cnpj }}</td>
-                <td>{{ r.serie }}</td>
-                <td>{{ r.numeroInicial }}</td>
-                <td>{{ r.numeroFinal }}</td>
-                <td>{{ r.quantidadeEsperada }}</td>
-                <td>{{ r.quantidadeEncontrada }}</td>
-                <td>
-                  <q-badge v-if="r.lacunas.length === 0" color="positive">Sequência completa</q-badge>
-                  <span v-else class="text-negative">{{ r.lacunas.join(', ') }}</span>
-                </td>
-              </tr>
-            </tbody>
-          </q-markup-table>
-        </template>
       </q-card-section>
     </template>
   </q-card>
@@ -292,6 +264,13 @@ const progressLabel = computed(() => {
   return `${p.label}...`
 })
 
+// NFC-e (séries do banco, por conexão) e NF-e (pastas avulsas, sem conexão
+// de banco) numa tabela só, com as lacunas no mesmo campo.
+const sequenceRows = computed(() => [
+  ...reportRows.value.map((r) => ({ ...r, tipo: 'NFC-e', lacunas: r.lacunasNaoRecuperadas })),
+  ...nfeFolderValidation.value.map((r) => ({ ...r, tipo: 'NF-e', conexao: 'Pasta de NF-e avulsa' }))
+])
+
 function toggleGrupo (grupo) {
   if (queryStore.groupFilter?.label === grupo.label) {
     queryStore.clearGroupFilter()
@@ -308,6 +287,8 @@ function statusColor (status) {
   return status === 'ok' ? 'positive' : status === 'warn' ? 'warning' : 'negative'
 }
 
+// Devolve o resultado da validação (null se cancelada ou com erro) — a
+// execução automática mensal usa pra saber o que não deu pra recuperar.
 async function run () {
   running.value = true
   queryStore.validating = true
@@ -326,7 +307,7 @@ async function run () {
 
     if (result.cancelled) {
       $q.notify({ type: 'warning', message: 'Validação cancelada.' })
-      return
+      return null
     }
 
     steps.value = result.steps
@@ -347,8 +328,10 @@ async function run () {
 
     queryStore.selected = result.finalItems
     queryStore.validated = true
+    return result
   } catch (err) {
     $q.notify({ type: 'negative', message: err.message ?? String(err) })
+    return null
   } finally {
     unsubscribe()
     running.value = false
@@ -411,14 +394,14 @@ async function downloadInconformidadesCsv () {
 
 async function downloadCsv () {
   const header = [
-    'CNPJ', 'Série', 'Número inicial', 'Número final',
+    'Conexão', 'Tipo', 'CNPJ', 'Série', 'Número inicial', 'Número final',
     'Quantidade esperada', 'Quantidade encontrada', 'Lacunas não recuperadas'
   ]
   const lines = [header.join(';')]
-  for (const r of reportRows.value) {
+  for (const r of sequenceRows.value) {
     lines.push([
-      r.cnpj, r.serie, r.numeroInicial, r.numeroFinal,
-      r.quantidadeEsperada, r.quantidadeEncontrada, r.lacunasNaoRecuperadas.join(' ')
+      r.conexao, r.tipo, r.cnpj, r.serie, r.numeroInicial, r.numeroFinal,
+      r.quantidadeEsperada, r.quantidadeEncontrada, r.lacunas.join(' ')
     ].map(toCsvValue).join(';'))
   }
 

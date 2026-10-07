@@ -39,6 +39,18 @@
           />
 
           <q-input
+            v-model="form.email"
+            filled
+            dense
+            type="email"
+            label="Email"
+            hint="Recebe uma cópia do envio dos XMLs, junto com o contador."
+            :rules="[(v) => !v || isValidEmail(v) || 'Email inválido']"
+          >
+            <template #prepend><q-icon name="mail" size="18px" /></template>
+          </q-input>
+
+          <q-input
             :model-value="licenseLabel"
             filled
             dense
@@ -60,7 +72,7 @@ import { reactive, ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useSettingsStore } from '@/stores/settings-store'
-import { isValidCnpj } from '@/utils/validators'
+import { isValidCnpj, isValidEmail } from '@/utils/validators'
 import { nextSetupLocation } from '@/utils/setup'
 
 const $q = useQuasar()
@@ -72,7 +84,7 @@ const settingsStore = useSettingsStore()
 // e, ao salvar, segue pra próxima tela pendente.
 const setup = computed(() => !!route.query.setup)
 
-const form = reactive({ cnpj: '', name: '' })
+const form = reactive({ cnpj: '', name: '', email: '' })
 const saving = ref(false)
 const lookingUp = ref(false)
 
@@ -95,7 +107,7 @@ const licenseLabel = 'Não disponível'
 async function save () {
   saving.value = true
   try {
-    await settingsStore.saveCompany({ ...form })
+    await settingsStore.saveCompany({ ...form, email: form.email.trim() })
     $q.notify({ type: 'positive', message: 'Dados da empresa salvos.' })
     if (setup.value) await router.push(await nextSetupLocation())
   } finally {

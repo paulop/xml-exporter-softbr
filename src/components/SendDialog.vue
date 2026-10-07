@@ -61,7 +61,7 @@
 
         <div class="text-caption text-grey q-mt-sm">
           Cada destinatário recebe por email um link para baixar o .zip.
-          Alterações aqui valem só para este envio. Para mudar o email padrão, use o menu Contador.
+          Alterações aqui valem só para este envio. Para mudar os emails padrão, use os menus Contador e Empresa.
         </div>
       </q-card-section>
 
@@ -91,12 +91,14 @@ const formRef = ref(null)
 const emails = ref([''])
 const accountantName = ref('')
 
-// Sempre reabre com o email cadastrado no menu Contador, descartando o que
-// foi editado num envio anterior.
+// Sempre reabre com os emails cadastrados (contador e, se houver, o da
+// empresa, que recebe uma cópia), descartando o que foi editado num envio anterior.
 async function load () {
   const accountant = await window.api.settings.getAccountant()
+  const company = await window.api.settings.getCompany()
   accountantName.value = accountant?.name ?? ''
-  emails.value = [accountant?.email || '']
+  const preset = [...new Set([accountant?.email, company?.email].map((e) => String(e ?? '').trim()).filter(Boolean))]
+  emails.value = preset.length ? preset : ['']
 }
 
 const cleanEmails = computed(() => [...new Set(emails.value.map((e) => e.trim()).filter(Boolean))])

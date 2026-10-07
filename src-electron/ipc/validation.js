@@ -1,5 +1,5 @@
 import { store } from '../lib/store.js'
-import { runValidation, ValidationCancelledError } from '../lib/notaValidation.js'
+import { runValidation, findInaccessibleFolders, ValidationCancelledError } from '../lib/notaValidation.js'
 import { validateNfeFolderSequence } from '../lib/nfeCopyFolders.js'
 
 let mainWindowRef = null
@@ -29,6 +29,7 @@ export async function run (rows, period) {
     // mesmo botão "Validar / Auditar" — não é mais uma ação separada na
     // tela de Configurações, usa o mesmo período já consultado.
     result.nfeFolderValidation = await validateNfeFolderSequence(store.get('nfeCopyFolders'), period ?? {})
+    result.inaccessibleFolders = await findInaccessibleFolders(folders)
     return result
   } catch (err) {
     if (err instanceof ValidationCancelledError) {

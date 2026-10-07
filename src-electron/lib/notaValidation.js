@@ -279,6 +279,22 @@ export async function listXmlFilesRecursive (dir) {
   return found
 }
 
+// `listXmlFilesRecursive` ignora pasta que não abre (devolve lista vazia),
+// então quem precisa avisar o usuário pergunta aqui quais das pastas
+// configuradas estão inacessíveis (não existe, rede fora, sem permissão).
+export async function findInaccessibleFolders (folders) {
+  const inaccessible = []
+  for (const folder of folders ?? []) {
+    try {
+      const stat = await fs.stat(folder)
+      if (!stat.isDirectory()) inaccessible.push(folder)
+    } catch {
+      inaccessible.push(folder)
+    }
+  }
+  return inaccessible
+}
+
 async function loadFolderEntry (match) {
   if (!match) return null
   let xmlString
@@ -403,6 +419,10 @@ export function detectGroups (rows) {
       if (!presentes.has(n)) lacunas.push(n)
     }
 
+    // Conexão(ões) de onde vieram as notas da série — normalmente uma só (cada
+    // caixa com a sua série), mas a série pode aparecer em mais de uma.
+    const conexoes = [...new Set(groupRows.map((r) => r.conexao).filter(Boolean))]
+
     let cnpj = null
     for (const row of groupRows) {
       if (!row.xmlContent) continue
@@ -413,6 +433,7 @@ export function detectGroups (rows) {
     groups.push({
       serie,
       cnpj,
+      conexoes,
       numeroInicial,
       numeroFinal,
       quantidadeEsperada: numeroFinal - numeroInicial + 1,
@@ -504,7 +525,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
   // (mas emitidas normalmente) não são desmarcadas aqui.
   const rowsAnnotated = rows.map((row) => ({
     ...row,
-    origem: 'banco de dados',
+    origem: row.nfeAvulsa ? row.origem : 'banco de dados',
     _parsed: row.xmlContent ? extractFromBase64(row.xmlContent) : emptyParsed()
   }))
 
@@ -542,7 +563,10 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
 
   // Passo 3 — sequência numérica
   reportStep(3, 'Verificação da sequência numérica')
-  const groups = detectGroups(rows)
+  // NF-e das pastas avulsas têm numeração própria (validada à parte em
+  // validateNfeFolderSequence) — misturar com as séries de NFC-e do banco
+  // criaria lacunas falsas.
+  const groups = detectGroups(rows.filter((r) => !r.nfeAvulsa))
   const totalLacunas = groups.reduce((sum, g) => sum + g.lacunas.length, 0)
   steps.push({
     id: 'sequencia',
@@ -666,6 +690,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
       .filter((x) => x.serie === g.serie)
       .map((x) => x.numero)
     return {
+      conexao: g.conexoes?.join(', ') ?? '',
       cnpj: g.cnpj ?? 'Não identificado',
       serie: g.serie,
       numeroInicial: g.numeroInicial,
@@ -686,7 +711,10 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
   return {
     steps,
     grupos,
-    recovered: [...recoveredGaps, ...workingSet.filter((i) => i.origem !== 'banco de dados')].map(stripInternal),
+    recovered: [
+      ...recoveredGaps,
+      ...workingSet.filter((i) => i.origem !== 'banco de dados' && !i.nfeAvulsa)
+    ].map(stripInternal),
     duplicates,
     invalid: invalid.map(stripInternal),
     finalItems: finalItems.map(stripInternal),

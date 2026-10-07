@@ -39,10 +39,40 @@
           icon="search"
           :loading="queryStore.querying"
           :disable="connectionsStore.connections.length === 0 || queryStore.querying"
-          @click="runQuery"
+          @click="runQuery()"
         />
       </div>
     </div>
+
+    <!-- Problemas da execução automática mensal: fica fixo até o usuário fechar. -->
+    <q-banner v-if="autoRunProblems.length" rounded class="bg-negative text-white q-mt-md">
+      <template #avatar><q-icon name="error" /></template>
+      <div class="text-weight-medium">Envio mensal automático: houve problemas.</div>
+      <ul class="q-my-xs q-pl-md">
+        <li v-for="(problem, i) in autoRunProblems" :key="i">{{ problem }}</li>
+      </ul>
+      <div>
+        {{ autoSendSuspended ? 'O envio automático não foi feito.' : '' }}
+        Você pode enviar ou baixar manualmente as notas encontradas, mesmo sem as que faltaram.
+      </div>
+      <template #action>
+        <q-btn flat dense label="Fechar" @click="autoRunProblems = []" />
+      </template>
+    </q-banner>
+
+    <!-- Execução automática mensal concluída sem problemas: fecha sozinho em 120s (cancelável). -->
+    <q-banner v-if="autoRunSuccess" rounded class="bg-positive text-white q-mt-md">
+      <template #avatar><q-icon name="check_circle" /></template>
+      <div class="text-weight-medium">Envio mensal automático concluído.</div>
+      <div>{{ autoRunSuccess }}</div>
+      <div v-if="autoCloseSeconds > 0" class="q-mt-xs">
+        O sistema será fechado automaticamente em {{ autoCloseSeconds }} segundo(s).
+      </div>
+      <template v-if="autoCloseSeconds > 0" #action>
+        <q-btn flat dense label="Cancelar fechamento" @click="cancelAutoClose(); autoRunSuccess = ''" />
+        <q-btn flat dense label="Fechar agora" @click="quitApp" />
+      </template>
+    </q-banner>
 
     <div class="row items-center no-wrap filter-bar q-mt-md">
       <q-chip
@@ -269,7 +299,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useQuasar, date } from 'quasar'
 import { useConnectionsStore } from '@/stores/connections-store'
 import { useQueryStore } from '@/stores/query-store'
@@ -294,6 +324,37 @@ const detailOpen = ref(false)
 const detailRow = ref(null)
 const validationRef = ref(null)
 const lastSuccess = ref(null)
+// Execução automática mensal: o que falhou (conexão, pasta, lacuna sem XML)
+// e se o envio automático deixou de ser feito por causa disso.
+const autoRunProblems = ref([])
+const autoSendSuspended = ref(false)
+// Execução automática sem problemas: mensagem de status e contagem regressiva
+// pra fechar o app sozinho (0 = sem contagem / cancelada).
+const AUTO_CLOSE_SECONDS = 120
+const autoRunSuccess = ref('')
+const autoCloseSeconds = ref(0)
+let autoCloseTimer = null
+
+function startAutoClose () {
+  autoCloseSeconds.value = AUTO_CLOSE_SECONDS
+  autoCloseTimer = setInterval(() => {
+    autoCloseSeconds.value--
+    if (autoCloseSeconds.value <= 0) quitApp()
+  }, 1000)
+}
+
+function cancelAutoClose () {
+  clearInterval(autoCloseTimer)
+  autoCloseTimer = null
+  autoCloseSeconds.value = 0
+}
+
+function quitApp () {
+  cancelAutoClose()
+  window.api.app.quit()
+}
+
+onBeforeUnmount(cancelAutoClose)
 
 // O que o sistema está fazendo agora, exibido ao lado do loader embaixo
 // dos botões. Vazio = ocioso (aí aparece o resultado da última exportação).
@@ -444,18 +505,24 @@ function formatDate (value) {
   }).format(date)
 }
 
-async function runQuery () {
+// Devolve os problemas da consulta (conexões ou pastas de NF-e avulsa que
+// falharam). Com `silent` (execução automática) eles não viram toast: quem
+// chamou mostra no aviso fixo.
+async function runQuery ({ silent = false } = {}) {
   try {
-    const errors = await queryStore.run()
-    if (errors?.length) {
+    const errors = (await queryStore.run()) ?? []
+    if (errors.length && !silent) {
       $q.notify({
         type: 'warning',
         multiLine: true,
-        message: `${errors.length} conexão(ões) falharam e ficaram de fora da consulta:\n${errors.join('\n')}`
+        message: `${errors.length} fonte(s) falharam e ficaram de fora da consulta:\n${errors.join('\n')}`
       })
     }
+    return errors
   } catch (err) {
-    $q.notify({ type: 'negative', message: err.message ?? String(err) })
+    const message = err.message ?? String(err)
+    if (!silent) $q.notify({ type: 'negative', message })
+    return [message]
   }
 }
 
@@ -550,27 +617,65 @@ async function send (emails) {
 // Abertura pela tarefa agendada (1ª segunda-feira do mês, ver menu Contador):
 // consulta e valida o mês anterior inteiro. Com "Enviar sem revisar" ligado,
 // já envia pro email do contador; senão para e espera o usuário clicar em "Enviar".
+// "Série 1: 120, 121 · Série 2: 45" — limitado pra não estourar o aviso.
+function describeGaps (gaps, max = 20) {
+  const bySerie = new Map()
+  for (const { serie, numero } of gaps.slice(0, max)) {
+    if (!bySerie.has(serie)) bySerie.set(serie, [])
+    bySerie.get(serie).push(numero)
+  }
+  const text = [...bySerie].map(([serie, numeros]) => `Série ${serie}: ${numeros.join(', ')}`).join(' · ')
+  return gaps.length > max ? `${text} (e mais ${gaps.length - max})` : text
+}
+
 async function runMonthlyAuto () {
+  const accountant = await window.api.settings.getAccountant()
+  autoRunProblems.value = []
+  autoSendSuspended.value = !!accountant?.sendWithoutReview
+
   if (connectionsStore.connections.length === 0) {
-    $q.notify({ type: 'warning', message: 'Envio mensal automático: nenhuma conexão configurada.' })
+    autoRunProblems.value.push('Nenhuma conexão configurada.')
     return
   }
 
   queryStore.dataInicial = date.formatDate(date.startOfDate(new Date(), 'month'), 'YYYY-MM-DD')
   queryStore.shiftMonth(-1)
-  await runQuery()
+  autoRunProblems.value.push(...await runQuery({ silent: true }))
   if (queryStore.lastError) return
 
-  await validationRef.value.run()
-  if (!queryStore.validated) {
-    $q.notify({ type: 'warning', message: 'Envio mensal automático: a validação não foi concluída.' })
+  const result = await validationRef.value.run()
+  if (!result) {
+    autoRunProblems.value.push('A validação não foi concluída.')
     return
   }
+  for (const folder of result.inaccessibleFolders ?? []) {
+    autoRunProblems.value.push(`Pasta de busca "${folder}": pasta não encontrada ou sem acesso`)
+  }
+  if (result.naoRecuperados?.length) {
+    autoRunProblems.value.push(
+      `${result.naoRecuperados.length} nota(s) faltando na sequência não foram encontradas nas pastas: ` +
+      describeGaps(result.naoRecuperados)
+    )
+  }
+  // Com problema, não envia sozinho mesmo com "Enviar sem revisar": o .zip
+  // sairia sem as notas da conexão/pasta que falhou.
+  if (autoRunProblems.value.length) return
 
-  const accountant = await window.api.settings.getAccountant()
+  // Contador é o destinatário principal; o email da empresa (se houver) vai junto, como cópia.
   const email = String(accountant?.email ?? '').trim()
   if (accountant?.sendWithoutReview && email) {
-    await send([email])
+    const companyEmail = String((await window.api.settings.getCompany())?.email ?? '').trim()
+    await send([...new Set([email, companyEmail].filter(Boolean))])
+    if (exportOk.value && !exportWarning.value) {
+      autoRunSuccess.value = exportMessage.value
+      startAutoClose()
+    } else if (exportOk.value) {
+      // Arquivo enviado, só o email falhou: não fecha sozinho, o usuário precisa ver.
+      autoSendSuspended.value = false
+      autoRunProblems.value.push(exportMessage.value)
+    } else {
+      autoRunProblems.value.push(`O envio falhou: ${exportMessage.value}`)
+    }
     return
   }
 
