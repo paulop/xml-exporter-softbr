@@ -261,6 +261,7 @@ const progressLabel = computed(() => {
   if (!p) return ''
   if (p.phase === 'listing') return 'Listando arquivos nas pastas configuradas...'
   if (p.phase === 'listed') return `${p.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas.`
+  if (p.phase === 'extending') return 'Procurando nas pastas notas do período que não estão no banco...'
   return `${p.label}...`
 })
 

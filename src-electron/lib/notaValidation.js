@@ -223,7 +223,9 @@ export function extractChaveFromFileName (fileName) {
 export function decodeChave (chave) {
   return {
     cnpj: chave.slice(6, 20),
-    // posições 21-22 são o "mod" (modelo do documento fiscal) — vêm antes da série.
+    // posições 21-22 são o "mod" (modelo do documento fiscal: 65 = NFC-e,
+    // 55 = NF-e) — vêm antes da série.
+    modelo: chave.slice(20, 22),
     serie: Number(chave.slice(22, 25)),
     numero: Number(chave.slice(25, 34))
   }
@@ -233,6 +235,41 @@ export function decodeChave (chave) {
 // filtrar candidatos por mês sem abrir o arquivo, igual ao resto do nome.
 export function decodeAnoMesFromChave (chave) {
   return { ano: Number(chave.slice(2, 4)), mes: Number(chave.slice(4, 6)) }
+}
+
+// Meses (no formato AA|M da chave) que o período toca — a chave só guarda
+// ano/mês, então é o máximo que dá pra filtrar só pelo nome do arquivo.
+export function monthsInRange (dataInicial, dataFinal) {
+  const months = new Set()
+  if (!dataInicial || !dataFinal) return months
+
+  const [anoIni, mesIni] = dataInicial.split('-').map(Number)
+  const [anoFin, mesFin] = dataFinal.split('-').map(Number)
+
+  let ano = anoIni
+  let mes = mesIni
+  while (ano < anoFin || (ano === anoFin && mes <= mesFin)) {
+    months.add(`${ano % 100}|${mes}`)
+    mes++
+    if (mes > 12) { mes = 1; ano++ }
+  }
+  return months
+}
+
+export function periodBounds (dataInicial, dataFinal) {
+  return {
+    startDate: dataInicial ? new Date(`${dataInicial}T00:00:00`) : null,
+    endDate: dataFinal ? new Date(`${dataFinal}T23:59:59.999`) : null
+  }
+}
+
+export function withinPeriod (dataEmissao, startDate, endDate) {
+  if (!dataEmissao) return false
+  const emitida = new Date(dataEmissao)
+  if (Number.isNaN(emitida.getTime())) return false
+  if (startDate && emitida < startDate) return false
+  if (endDate && emitida > endDate) return false
+  return true
 }
 
 // Nota que nunca chegou a existir no banco (nem a chave é conhecida), mas o
@@ -316,6 +353,11 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
   const byChave = new Map()
   const byNumSerieCnpj = new Map()
   const byNumSerie = new Map()
+  // Todos os números de cada série (CNPJ+modelo+série) que existem na pasta,
+  // com o mês de emissão da chave — é o que permite achar notas ANTES do
+  // primeiro ou DEPOIS do último número que o banco devolveu (ver
+  // extendGroupsFromFolders), coisa que byNumSerie sozinho não responde.
+  const bySerie = new Map()
 
   onProgress?.({ phase: 'listing', message: 'Listando arquivos nas pastas configuradas...' })
 
@@ -345,12 +387,20 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
     // (ex. "..._chave_<chave>-nfe.xml"); número/série/CNPJ saem direto dela.
     const chave = extractChaveFromFileName(name)
     if (chave) {
-      const { cnpj, serie, numero } = decodeChave(chave)
+      const { cnpj, modelo, serie, numero } = decodeChave(chave)
       const numSerieKey = `${serie}|${numero}`
       if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder, via: 'chave-no-nome' })
 
       const fullKey = `${cnpj}|${numSerieKey}`
       if (!byNumSerieCnpj.has(fullKey)) byNumSerieCnpj.set(fullKey, { filePath, folder, via: 'chave-no-nome' })
+
+      const serieKey = `${cnpj}|${modelo}|${serie}`
+      if (!bySerie.has(serieKey)) bySerie.set(serieKey, { cnpj, modelo, serie, numeros: new Map() })
+      const numeros = bySerie.get(serieKey).numeros
+      if (!numeros.has(numero)) {
+        const { ano, mes } = decodeAnoMesFromChave(chave)
+        numeros.set(numero, { filePath, folder, ano, mes })
+      }
     }
   }
 
@@ -384,7 +434,7 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
     }
   }
 
-  return { byChave, byNumSerieCnpj, byNumSerie, totalFound: allFiles.length }
+  return { byChave, byNumSerieCnpj, byNumSerie, bySerie, totalFound: allFiles.length }
 }
 
 function lookupByNumeroSerie (folderIndex, cnpj, serie, numero) {
@@ -430,14 +480,28 @@ export function detectGroups (rows) {
       if (parsed.cnpj) { cnpj = parsed.cnpj; break }
     }
 
+    // Modelo (65/55) só existe na chave; o CNPJ também sai dela quando
+    // nenhuma linha da série tem XML legível no banco.
+    let modelo = null
+    for (const row of groupRows) {
+      const chave = String(row.chave ?? '')
+      if (!/^\d{44}$/.test(chave)) continue
+      const decoded = decodeChave(chave)
+      modelo = decoded.modelo
+      cnpj = cnpj ?? decoded.cnpj
+      break
+    }
+
     groups.push({
       serie,
       cnpj,
+      modelo,
       conexoes,
       numeroInicial,
       numeroFinal,
       quantidadeEsperada: numeroFinal - numeroInicial + 1,
-      lacunas
+      lacunas,
+      numerosBanco: presentes
     })
   }
 
@@ -475,6 +539,7 @@ const METODO_RECUPERACAO = {
   'chave-exata': 'Nome exato da chave',
   'chave-no-nome': 'Chave de acesso no nome do arquivo',
   'lote-envio': 'Lote de envio à SEFAZ (nota nunca chegou a ser gravada no banco)',
+  'fora-do-intervalo': 'Fora do intervalo do banco (emissão no período, banco sem registro)',
   inutilizacao: 'Faixa inutilizada junto à SEFAZ (sem nota correspondente)'
 }
 
@@ -508,9 +573,127 @@ function buildRecoveredItem (base, found) {
   }
 }
 
+function applyFaixa (group, numerosExtras) {
+  const todos = [...group.numerosBanco, ...numerosExtras]
+  const presentes = new Set(todos)
+  group.numeroInicial = Math.min(...todos)
+  group.numeroFinal = Math.max(...todos)
+  group.quantidadeEsperada = group.numeroFinal - group.numeroInicial + 1
+  group.lacunas = []
+  for (let n = group.numeroInicial; n <= group.numeroFinal; n++) {
+    if (!presentes.has(n)) group.lacunas.push(n)
+  }
+}
+
+// A lacuna de numeração (detectGroups) só enxerga o que fica ENTRE o
+// primeiro e o último número que o banco devolveu. Quando o banco para no
+// meio do período (ex.: consulta de 01 a 30, mas o banco só tem até o dia
+// 14) ou começa depois do início, as notas das pontas nem viram lacuna — e
+// o relatório ainda mostra a série como completa. Aqui a pasta de apoio
+// estende cada série pras pontas: entra todo número fora da faixa do banco
+// cuja emissão (confirmada no XML, não só pelo mês da chave) cai dentro do
+// período. Série que só existe na pasta (caixa sem nada no banco no
+// período) entra também, desde que seja do mesmo CNPJ/modelo das notas do
+// banco ou da empresa configurada — a pasta pode ter documento de outra
+// empresa ou NF-e misturada. A faixa da série é recalculada, então o que
+// faltar no meio do trecho estendido vira lacuna normal e passa pela busca
+// em cascata logo depois.
+async function extendGroupsFromFolders (groups, folderIndex, { period, companyCnpj, isCancelled }) {
+  const months = monthsInRange(period?.dataInicial, period?.dataFinal)
+  if (months.size === 0 || folderIndex.bySerie.size === 0) return []
+  const { startDate, endDate } = periodBounds(period.dataInicial, period.dataFinal)
+
+  const knownCnpjs = new Set(groups.map((g) => g.cnpj).filter(Boolean))
+  if (companyCnpj) knownCnpjs.add(companyCnpj)
+  const knownModelos = new Set(groups.map((g) => g.modelo).filter(Boolean))
+  if (knownModelos.size === 0) knownModelos.add('65')
+
+  // Junta os números da série (pode haver mais de um CNPJ aceito quando o
+  // do grupo não é conhecido) que estão em mês do período e passam no filtro.
+  const collectCandidatos = (serie, aceitaCnpj, aceitaModelo, aceitaNumero) => {
+    const candidatos = new Map()
+    for (const entry of folderIndex.bySerie.values()) {
+      if (entry.serie !== serie || !aceitaCnpj(entry.cnpj) || !aceitaModelo(entry.modelo)) continue
+      for (const [numero, info] of entry.numeros) {
+        if (candidatos.has(numero) || !aceitaNumero(numero)) continue
+        if (!months.has(`${info.ano}|${info.mes}`)) continue
+        candidatos.set(numero, info)
+      }
+    }
+    return [...candidatos].sort((a, b) => a[0] - b[0])
+  }
+
+  const confirmar = async (serie, candidatos) => {
+    const confirmados = []
+    for (const [numero, info] of candidatos) {
+      if (isCancelled?.()) throw new ValidationCancelledError()
+      const found = await loadFolderEntry({ ...info, via: 'fora-do-intervalo' })
+      const parsed = found?.parsed
+      if (!parsed?.wellFormed || parsed.tipo !== 'nfe') continue
+      if (parsed.serie !== serie || parsed.numero !== numero) continue
+      if (!withinPeriod(parsed.dataEmissao, startDate, endDate)) continue
+      confirmados.push(buildRecoveredItem({ numero, serie, cnpj: parsed.cnpj }, found))
+    }
+    return confirmados
+  }
+
+  const extended = []
+
+  for (const group of groups) {
+    const candidatos = collectCandidatos(
+      group.serie,
+      (cnpj) => (group.cnpj ? cnpj === group.cnpj : (knownCnpjs.size === 0 || knownCnpjs.has(cnpj))),
+      (modelo) => (group.modelo ? modelo === group.modelo : knownModelos.has(modelo)),
+      (numero) => numero < group.numeroInicial || numero > group.numeroFinal
+    )
+    if (candidatos.length === 0) continue
+
+    const confirmados = await confirmar(group.serie, candidatos)
+    if (confirmados.length === 0) continue
+
+    applyFaixa(group, confirmados.map((i) => i.numero))
+    group.foraDoIntervalo = confirmados.length
+    extended.push(...confirmados)
+  }
+
+  // Séries só da pasta: sem CNPJ conhecido não dá pra separar o que é da
+  // empresa do que é de outra, então nesse caso não arrisca.
+  if (knownCnpjs.size > 0) {
+    const seriesConhecidas = new Set(groups.map((g) => g.serie))
+    const seriesSoNaPasta = new Set()
+    for (const entry of folderIndex.bySerie.values()) {
+      if (seriesConhecidas.has(entry.serie)) continue
+      if (!knownCnpjs.has(entry.cnpj) || !knownModelos.has(entry.modelo)) continue
+      seriesSoNaPasta.add(entry.serie)
+    }
+
+    for (const serie of [...seriesSoNaPasta].sort((a, b) => a - b)) {
+      const candidatos = collectCandidatos(serie, (c) => knownCnpjs.has(c), (m) => knownModelos.has(m), () => true)
+      const confirmados = await confirmar(serie, candidatos)
+      if (confirmados.length === 0) continue
+
+      const chave = String(confirmados[0].chave ?? '')
+      const decoded = /^\d{44}$/.test(chave) ? decodeChave(chave) : null
+      const group = {
+        serie,
+        cnpj: confirmados[0]._parsed.cnpj ?? decoded?.cnpj ?? null,
+        modelo: decoded?.modelo ?? null,
+        conexoes: [],
+        numerosBanco: new Set(),
+        foraDoIntervalo: confirmados.length
+      }
+      applyFaixa(group, confirmados.map((i) => i.numero))
+      groups.push(group)
+      extended.push(...confirmados)
+    }
+  }
+
+  return extended
+}
+
 const TOTAL_STEPS = 7
 
-export async function runValidation ({ rows, folders, onProgress, isCancelled }) {
+export async function runValidation ({ rows, folders, period, companyCnpj, onProgress, isCancelled }) {
   const steps = []
 
   const reportStep = (step, label) => onProgress?.({ step, totalSteps: TOTAL_STEPS, label })
@@ -605,6 +788,10 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
     workingSet.push(row)
   }
 
+  onProgress?.({ step: 4, totalSteps: TOTAL_STEPS, label: 'Busca em cascata de XMLs faltantes', phase: 'extending' })
+  const foraDoIntervalo = await extendGroupsFromFolders(groups, folderIndex, { period, companyCnpj, isCancelled })
+  const seriesSoNaPasta = groups.filter((g) => g.numerosBanco.size === 0).length
+
   const recoveredGaps = []
   const naoRecuperados = []
 
@@ -626,6 +813,10 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
   const recuperadosPorInutilizacao = recoveredGaps.filter((i) => i.metodoRecuperacao === METODO_RECUPERACAO.inutilizacao).length
 
   const detalhesExtra = [
+    foraDoIntervalo.length > 0
+      ? `${foraDoIntervalo.length} fora do intervalo do banco, pela data de emissão` +
+        (seriesSoNaPasta > 0 ? ` (inclui ${seriesSoNaPasta} série(s) sem nenhuma nota no banco)` : '')
+      : null,
     recuperadosPorLote > 0 ? `${recuperadosPorLote} via lote de envio à SEFAZ (nem chegaram a ser gravadas no banco)` : null,
     recuperadosPorInutilizacao > 0 ? `${recuperadosPorInutilizacao} eram faixa inutilizada (sem nota — número baixado junto à SEFAZ)` : null
   ].filter(Boolean).join('; ')
@@ -635,7 +826,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
     label: 'Busca em cascata de XMLs faltantes',
     status: naoRecuperados.length > 0 ? 'warn' : 'ok',
     detail: `${folderIndex.totalFound} arquivo(s) XML encontrado(s) nas pastas configuradas · ` +
-      `${recuperadosPorChave} recuperado(s) por nome exato da chave, ${recoveredGaps.length} por número/série` +
+      `${recuperadosPorChave} recuperado(s) por nome exato da chave, ${recoveredGaps.length + foraDoIntervalo.length} por número/série` +
       (detalhesExtra ? ` (${detalhesExtra})` : '') +
       ` · ${naoRecuperados.length} lacuna(s) não encontrada(s) — verificar manualmente no portal TOTVS.`
   })
@@ -644,7 +835,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
 
   // Passo 5 — deduplicação e separação de inconformidades
   reportStep(5, 'Deduplicação do lote')
-  const combined = [...workingSet, ...recoveredGaps]
+  const combined = [...workingSet, ...foraDoIntervalo, ...recoveredGaps]
   const { kept, duplicates } = dedupeByChave(combined)
 
   steps.push({
@@ -712,6 +903,7 @@ export async function runValidation ({ rows, folders, onProgress, isCancelled })
     steps,
     grupos,
     recovered: [
+      ...foraDoIntervalo,
       ...recoveredGaps,
       ...workingSet.filter((i) => i.origem !== 'banco de dados' && !i.nfeAvulsa)
     ].map(stripInternal),

@@ -21,6 +21,8 @@ export async function run (rows, period) {
     const result = await runValidation({
       rows: rows ?? [],
       folders,
+      period: period ?? {},
+      companyCnpj: String(store.get('company')?.cnpj ?? '').replace(/\D/g, '') || null,
       onProgress: (info) => mainWindowRef?.webContents.send('validation:progress', info),
       isCancelled: () => cancelRequested
     })

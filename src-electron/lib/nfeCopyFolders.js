@@ -5,7 +5,10 @@ import {
   listXmlFilesRecursive,
   extractChaveFromFileName,
   decodeAnoMesFromChave,
-  decodeChave
+  decodeChave,
+  monthsInRange,
+  periodBounds,
+  withinPeriod
 } from './notaValidation.js'
 
 // Pastas de NF-e avulsas (ex.: notas de outro sistema/filial que nunca
@@ -17,32 +20,6 @@ import {
 // sequência para as notas que vêm dessas pastas.
 export const NFE_AVULSA_CONEXAO = 'Pasta de NF-e avulsa'
 
-function monthsInRange (dataInicial, dataFinal) {
-  const months = new Set()
-  if (!dataInicial || !dataFinal) return months
-
-  const [anoIni, mesIni] = dataInicial.split('-').map(Number)
-  const [anoFin, mesFin] = dataFinal.split('-').map(Number)
-
-  let ano = anoIni
-  let mes = mesIni
-  while (ano < anoFin || (ano === anoFin && mes <= mesFin)) {
-    months.add(`${ano % 100}|${mes}`)
-    mes++
-    if (mes > 12) { mes = 1; ano++ }
-  }
-  return months
-}
-
-function withinPeriod (dataEmissao, startDate, endDate) {
-  if (!dataEmissao) return false
-  const emitida = new Date(dataEmissao)
-  if (Number.isNaN(emitida.getTime())) return false
-  if (startDate && emitida < startDate) return false
-  if (endDate && emitida > endDate) return false
-  return true
-}
-
 // Varre as pastas configuradas e devolve, já no formato usado pelo ZIP/log,
 // só os XMLs cuja emissão cai dentro do período — sem passar pela busca em
 // cascata nem tentar casar com nenhuma linha do banco.
@@ -50,8 +27,7 @@ export async function collectNfeFromFolders (folders, { dataInicial, dataFinal }
   if (!folders || folders.length === 0) return []
 
   const months = monthsInRange(dataInicial, dataFinal)
-  const startDate = dataInicial ? new Date(`${dataInicial}T00:00:00`) : null
-  const endDate = dataFinal ? new Date(`${dataFinal}T23:59:59.999`) : null
+  const { startDate, endDate } = periodBounds(dataInicial, dataFinal)
 
   const results = []
 
