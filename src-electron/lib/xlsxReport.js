@@ -152,6 +152,7 @@ function buildLinha (item) {
     valorIcms: parsedXml?.valorIcms ?? null,
     baseIcms: parsedXml?.baseIcms ?? null,
     desconto: parsedXml?.desconto ?? null,
+    icmsDesonerado: parsedXml?.icmsDesonerado ?? null,
     frete: parsedXml?.frete ?? null,
     tipoEmissao: toUpperOrEmpty(item.tpEmissao),
     ambiente: parsedXml?.ambiente === 2 ? 'Homologação' : (parsedXml?.ambiente === 1 ? 'Produção' : ''),
@@ -278,21 +279,22 @@ function addSheetXmls (workbook, linhas) {
     'CNPJ Emitente', 'Razão Social Emitente', 'Tipo Documento', 'Modelo', 'Número', 'Série',
     'Data Emissão', 'Hora Emissão', 'Chave de Acesso', 'Protocolo', 'Status', 'Código Status',
     'Motivo', 'CPF/CNPJ Destinatário', 'Nome Destinatário', 'Valor Total', 'Valor Produtos',
-    'Valor ICMS', 'Base ICMS', 'Desconto', 'Frete', 'Tipo Emissão', 'Ambiente', 'Origem',
-    'Nome do Arquivo', 'Observações'
+    'Valor ICMS', 'Base ICMS', 'Desconto', 'ICMS Desonerado (vICMSDeson)', 'Frete', 'Tipo Emissão',
+    'Ambiente', 'Origem', 'Nome do Arquivo', 'Observações'
   ]
   styleHeaderRow(sheet, headers)
 
-  const moedaCols = new Set([16, 17, 18, 19, 20, 21])
+  const moedaCols = new Set([16, 17, 18, 19, 20, 21, 22])
   // Número e série entram aqui também: uma coluna numérica com célula vazia
   // como texto ('') em vez de célula em branco de verdade cria uma coluna de
   // tipo misto (número + texto), que é causa clássica do Excel se comportar
   // mal — às vezes travando — ao tentar ordenar.
-  const numericCols = new Set([5, 6, 16, 17, 18, 19, 20, 21])
+  const numericCols = new Set([5, 6, 16, 17, 18, 19, 20, 21, 22])
 
   let totalAutorizados = 0
   let totalCancelados = 0
   let somaAutorizados = 0
+  let somaDesonerado = 0
   let somaGeral = 0
 
   linhas.forEach((linha, idx) => {
@@ -302,8 +304,8 @@ function addSheetXmls (workbook, linhas) {
       linha.numero, linha.serie, formatData(linha.dataEmissaoRaw), formatHora(linha.dataEmissaoRaw),
       linha.chave, linha.protocolo, linha.status, linha.cStat, linha.motivo,
       linha.cpfCnpjDestinatario, linha.nomeDestinatario, linha.valorTotal, linha.valorProdutos,
-      linha.valorIcms, linha.baseIcms, linha.desconto, linha.frete, linha.tipoEmissao,
-      linha.ambiente, linha.origem, linha.nomeArquivo, linha.observacoes
+      linha.valorIcms, linha.baseIcms, linha.desconto, linha.icmsDesonerado, linha.frete,
+      linha.tipoEmissao, linha.ambiente, linha.origem, linha.nomeArquivo, linha.observacoes
     ]
     values.forEach((value, i) => {
       const col = i + 1
@@ -321,7 +323,11 @@ function addSheetXmls (workbook, linhas) {
 
     const valor = Number(linha.valorTotal) || 0
     somaGeral += valor
-    if (kind === 'autorizado') { totalAutorizados++; somaAutorizados += valor }
+    if (kind === 'autorizado') {
+      totalAutorizados++
+      somaAutorizados += valor
+      somaDesonerado += Number(linha.icmsDesonerado) || 0
+    }
     if (kind === 'cancelado') totalCancelados++
   })
 
@@ -330,15 +336,17 @@ function addSheetXmls (workbook, linhas) {
     ['Quantidade total de documentos', linhas.length],
     ['Total de documentos autorizados', totalAutorizados],
     ['Total de documentos cancelados', totalCancelados],
-    ['Soma total dos valores autorizados', somaAutorizados],
-    ['Soma total geral', somaGeral]
+    ['Soma total dos valores autorizados', somaAutorizados, true],
+    ['Valor total desonerado', somaDesonerado, true],
+    ['Valor final (autorizado − desonerado)', somaAutorizados - somaDesonerado, true],
+    ['Soma total geral', somaGeral, true]
   ]
-  footerLabels.forEach(([label, value], i) => {
+  footerLabels.forEach(([label, value, moeda], i) => {
     const row = sheet.getRow(footerStart + i)
     row.getCell(1).value = label
     row.getCell(1).font = { bold: true }
     row.getCell(2).value = value
-    if (label.toLowerCase().includes('soma')) row.getCell(2).numFmt = MOEDA_FMT
+    if (moeda) row.getCell(2).numFmt = MOEDA_FMT
   })
 
   autoFitColumns(sheet)
@@ -388,6 +396,7 @@ function addSheetResumo (workbook, linhas, quebras) {
   const porOrigem = new Map()
   const series = new Set()
   let valorAutorizado = 0
+  let valorDesonerado = 0
   let valorCancelado = 0
 
   for (const linha of linhas) {
@@ -400,7 +409,12 @@ function addSheetResumo (workbook, linhas, quebras) {
 
     const kind = statusKind(linha.status)
     const valor = Number(linha.valorTotal) || 0
-    if (kind === 'autorizado') valorAutorizado += valor
+    // Desonerado só das autorizadas: é abatido do valor autorizado logo
+    // abaixo, então somar o de nota cancelada distorceria o valor final.
+    if (kind === 'autorizado') {
+      valorAutorizado += valor
+      valorDesonerado += Number(linha.icmsDesonerado) || 0
+    }
     if (kind === 'cancelado') valorCancelado += valor
   }
 
@@ -423,6 +437,8 @@ function addSheetResumo (workbook, linhas, quebras) {
   metric('Total de séries', series.size)
   metric('Total de quebras encontradas', totalQuebras)
   metric('Valor total autorizado', valorAutorizado, true)
+  metric('Valor total desonerado', valorDesonerado, true)
+  metric('Valor final (autorizado − desonerado)', valorAutorizado - valorDesonerado, true)
   metric('Valor total cancelado', valorCancelado, true)
 
   r++

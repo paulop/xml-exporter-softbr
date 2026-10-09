@@ -168,6 +168,7 @@ export function parseXmlDetalhado (xmlString) {
       valorIcms: null,
       baseIcms: null,
       desconto: null,
+      icmsDesonerado: null,
       frete: null,
       ambiente: infInut.tpAmb !== undefined ? Number(infInut.tpAmb) : null
     }
@@ -205,6 +206,7 @@ export function parseXmlDetalhado (xmlString) {
     valorIcms: toNumber(icmsTot?.vICMS),
     baseIcms: toNumber(icmsTot?.vBC),
     desconto: toNumber(icmsTot?.vDesc),
+    icmsDesonerado: toNumber(icmsTot?.vICMSDeson),
     frete: toNumber(icmsTot?.vFrete),
     ambiente: toNumber(ide?.tpAmb)
   }
