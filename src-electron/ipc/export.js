@@ -116,7 +116,7 @@ export async function downloadZip (items, period, onProgress = () => {}) {
 
   // Estrutura do .zip: log/ com o relatório e xml/ com as notas.
   const entries = [
-    { name: 'log/Relatorio_XML_SoftBR.xlsx', data: reportBuffer },
+    { name: 'log/Relatorio_XML.xlsx', data: reportBuffer },
     ...validItems.map((item) => ({ name: `xml/${fileNameFor(item)}`, data: toBuffer(item.xmlContent) }))
   ]
 

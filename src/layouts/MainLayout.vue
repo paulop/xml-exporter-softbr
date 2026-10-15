@@ -3,7 +3,7 @@
     <q-header elevated>
       <q-toolbar>
         <q-toolbar-title class="row items-center no-wrap">
-          <span>Gerador de Arquivos XML - SoftBR</span>
+          <span>TOTVS Chef | XML</span>
           <q-chip v-if="appVersion" dense outline color="white" text-color="white" class="q-ml-sm">
             v{{ appVersion }}
           </q-chip>

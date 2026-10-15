@@ -1,4 +1,4 @@
-# XML Exporter SoftBR
+# TOTVS Chef | XML
 
 Exportador de XML de notas fiscais (NF-e/NFC-e) para a contabilidade. App desktop em Electron + Quasar/Vue que conecta em bancos SQL Server na rede local, roda uma consulta configurável e exporta os XMLs selecionados em .zip.
 

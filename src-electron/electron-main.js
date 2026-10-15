@@ -35,7 +35,7 @@ function createWindow () {
    * Initial window options
    */
   const mainWindow = new BrowserWindow({
-    title: 'Gerador de Arquivos XML - SoftBR',
+    title: 'TOTVS Chef | XML',
     icon: resolveElectronAssetsPath('icons/icon.png'), // Windows and Linux
     width: 1200,
     height: 800,

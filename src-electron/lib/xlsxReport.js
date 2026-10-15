@@ -481,7 +481,7 @@ export async function buildLogWorkbookBuffer (items) {
   const quebras = buildQuebras(linhas)
 
   const workbook = new (getExcelJS().Workbook)()
-  workbook.creator = 'XML Exporter SoftBR'
+  workbook.creator = 'TOTVS Chef | XML'
   workbook.created = new Date()
 
   addSheetXmls(workbook, linhas)

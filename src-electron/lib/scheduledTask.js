@@ -39,7 +39,7 @@ function taskXml () {
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Abre o Gerador de Arquivos XML - SoftBR para o envio mensal dos XMLs à contabilidade.</Description>
+    <Description>Abre o TOTVS Chef | XML para o envio mensal dos XMLs à contabilidade.</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>

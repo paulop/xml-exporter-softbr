@@ -214,7 +214,13 @@ export default defineConfig((/* ctx */) => {
         // https://www.electron.build/configuration
 
         appId: 'br.com.softbr.xmlexporter',
-        productName: 'Gerador de Arquivos XML - SoftBR',
+        productName: 'TOTVS Chef | XML',
+        // O "|" do productName não pode ir em nome de arquivo no Windows, e o
+        // nome do .exe saía do productName. Fica fixo no nome antigo porque a
+        // tarefa agendada (lib/scheduledTask.js) aponta pro caminho do .exe e
+        // só é recriada quando o usuário salva as configurações — trocar o
+        // nome do .exe numa atualização deixaria a tarefa apontando pro nada.
+        executableName: 'Gerador de Arquivos XML - SoftBR',
         // electron-builder's automatic "which node_modules are actually
         // used" detection is flaky across environments (worked locally,
         // silently produced an asar with NO node_modules at all on CI).
@@ -227,7 +233,10 @@ export default defineConfig((/* ctx */) => {
         },
         nsis: {
           oneClick: false,
-          allowToChangeInstallationDirectory: true
+          allowToChangeInstallationDirectory: true,
+          // Sem isso, os dois cairiam no productName sem o "|" ("TOTVS Chef  XML").
+          shortcutName: 'TOTVS Chef - XML',
+          artifactName: 'TOTVS-Chef-XML-Setup-${version}.${ext}'
         },
         publish: [
           {

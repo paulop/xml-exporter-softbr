@@ -1,6 +1,6 @@
 # Objetivos do projeto
 
-O XML Exporter SoftBR existe para resolver um problema recorrente da contabilidade: reunir os XMLs de NF-e/NFC-e emitidos por uma ou mais filiais, garantir que o lote está completo e íntegro, e entregar um pacote pronto para envio — sem depender de exportação manual nota a nota no ERP.
+O TOTVS Chef | XML existe para resolver um problema recorrente da contabilidade: reunir os XMLs de NF-e/NFC-e emitidos por uma ou mais filiais, garantir que o lote está completo e íntegro, e entregar um pacote pronto para envio — sem depender de exportação manual nota a nota no ERP.
 
 Para isso, o app:
 
@@ -54,7 +54,7 @@ Cada XML exportado (individualmente ou dentro da pasta `xml/` do `.zip`) é nome
 
 ## Relatório de log em XLSX (padrão SoftBR)
 
-O botão **"Baixar .zip"** na tela principal só fica habilitado depois de rodar **"Validar / Auditar"** sobre a consulta atual (uma nova consulta exige validar de novo). Ele inclui, junto dos XMLs, um `.xlsx` de auditoria (`log/Relatorio_XML_SoftBR.xlsx`, gerado por `buildLogWorkbookBuffer` em [xlsxReport.js](../src-electron/lib/xlsxReport.js)) a partir do mesmo conjunto de notas — o conteúdo do relatório sai das próprias notas, não do resultado da validação. Como os itens não carregam CNPJ, razão social, destinatário ou valores discriminados por padrão, essa etapa reparseia o XML de cada nota (`parseXmlDetalhado`, em [notaValidation.js](../src-electron/lib/notaValidation.js)) para extrair esses campos; o restante (status, tipo de emissão, valor total) vem do item já processado pelo pipeline, por ser mais confiável.
+O botão **"Baixar .zip"** na tela principal só fica habilitado depois de rodar **"Validar / Auditar"** sobre a consulta atual (uma nova consulta exige validar de novo). Ele inclui, junto dos XMLs, um `.xlsx` de auditoria (`log/Relatorio_XML.xlsx`, gerado por `buildLogWorkbookBuffer` em [xlsxReport.js](../src-electron/lib/xlsxReport.js)) a partir do mesmo conjunto de notas — o conteúdo do relatório sai das próprias notas, não do resultado da validação. Como os itens não carregam CNPJ, razão social, destinatário ou valores discriminados por padrão, essa etapa reparseia o XML de cada nota (`parseXmlDetalhado`, em [notaValidation.js](../src-electron/lib/notaValidation.js)) para extrair esses campos; o restante (status, tipo de emissão, valor total) vem do item já processado pelo pipeline, por ser mais confiável.
 
 Qualquer escrita de arquivo nesse módulo (`.zip`, `.xlsx`, `.csv`, `.pdf`) passa por `writeFileSafe`, que traduz erros de arquivo travado/sem permissão (`EBUSY`/`EPERM`/`EACCES` — tipicamente o destino aberto no Excel) numa mensagem acionável, em vez de deixar o erro cru do Node subir pelo IPC.
 
