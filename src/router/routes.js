@@ -6,6 +6,7 @@ const routes = [
       { path: '', component: () => import('@/pages/IndexPage.vue') },
       { path: 'settings/connections', component: () => import('@/pages/settings/ConnectionsPage.vue') },
       { path: 'settings/export', component: () => import('@/pages/settings/ExportSettingsPage.vue') },
+      { path: 'settings/software-house', component: () => import('@/pages/settings/SoftwareHousePage.vue') },
       { path: 'settings/accountant', component: () => import('@/pages/settings/AccountantPage.vue') },
       { path: 'company', component: () => import('@/pages/settings/CompanyPage.vue') }
     ],

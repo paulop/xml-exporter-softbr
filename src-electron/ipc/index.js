@@ -46,6 +46,9 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('settings:setDestinationFolder', () => settings.setDestinationFolder())
   ipcMain.handle('settings:getCompany', () => settings.getCompany())
   ipcMain.handle('settings:setCompany', (_e, payload) => settings.setCompany(payload))
+  ipcMain.handle('settings:getSoftwareHouse', () => settings.getSoftwareHouse())
+  ipcMain.handle('settings:setSoftwareHouse', (_e, payload) => settings.setSoftwareHouse(payload))
+  ipcMain.handle('settings:chooseSoftwareHouseLogo', () => settings.chooseSoftwareHouseLogo())
   ipcMain.handle('settings:lookupCnpj', (_e, cnpj) => settings.lookupCnpj(cnpj))
   ipcMain.handle('settings:getAccountant', () => settings.getAccountant())
   ipcMain.handle('settings:setAccountant', (_e, payload) => settings.setAccountant(payload))
@@ -59,7 +62,7 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('settings:openPortal', () => settings.openPortal())
 
   validation.init(mainWindow)
-  ipcMain.handle('validation:run', (_e, rows, period) => validation.run(rows, period))
+  ipcMain.handle('validation:run', (_e, rows, period, sourceErrors) => validation.run(rows, period, sourceErrors))
   ipcMain.handle('validation:cancel', () => validation.cancel())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())

@@ -227,6 +227,11 @@
       @confirm="send"
     />
 
+    <q-banner v-if="queryStore.validated && queryStore.unrecoveredGaps > 0" rounded class="bg-orange-1 text-orange-10 q-mt-md">
+      <template #avatar><q-icon name="support_agent" color="warning" /></template>
+      {{ gapsSupportMessage }}
+    </q-banner>
+
     <div class="row items-center justify-end q-mt-md q-gutter-sm">
       <div v-if="lastSuccess" class="text-caption text-grey-8 row items-center no-wrap">
         <q-icon name="history" size="18px" class="q-mr-xs" />
@@ -259,7 +264,7 @@
         <q-btn
           color="primary"
           icon="folder_zip"
-          label="Baixar .zip"
+          label="Download"
           :loading="downloadingZip"
           :disable="busy || !queryStore.validated"
           @click="downloadZip"
@@ -303,7 +308,9 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useQuasar, date } from 'quasar'
 import { useConnectionsStore } from '@/stores/connections-store'
 import { useQueryStore } from '@/stores/query-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { toPlain } from '@/utils/ipc'
+import { defaultRecipients } from '@/utils/setup'
 import NotaDetailDialog from '@/components/NotaDetailDialog.vue'
 import ValidationChecklist from '@/components/ValidationChecklist.vue'
 import SendDialog from '@/components/SendDialog.vue'
@@ -311,6 +318,25 @@ import SendDialog from '@/components/SendDialog.vue'
 const $q = useQuasar()
 const connectionsStore = useConnectionsStore()
 const queryStore = useQueryStore()
+const settingsStore = useSettingsStore()
+
+// Contato da Software House (carregado pelo MainLayout) pro aviso de lacunas.
+// Sem nome ou telefone cadastrados, a frase continua fazendo sentido.
+const gapsSupportMessage = computed(() => {
+  const { name, whatsapp } = settingsStore.softwareHouse ?? {}
+  const phone = formatPhone(whatsapp)
+  return 'Existem lacunas não recuperadas, entre em contato com a ' +
+    (name?.trim() || 'Software House') +
+    (phone ? ` no telefone ${phone}` : '') +
+    ' para corrigir essas lacunas.'
+})
+
+function formatPhone (value) {
+  const d = String(value ?? '').replace(/\D/g, '')
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return d
+}
 
 const downloadingZip = ref(false)
 const sending = ref(false)
@@ -658,14 +684,23 @@ async function runMonthlyAuto () {
     )
   }
   // Com problema, não envia sozinho mesmo com "Enviar sem revisar": o .zip
-  // sairia sem as notas da conexão/pasta que falhou.
-  if (autoRunProblems.value.length) return
+  // sairia sem as notas da conexão/pasta que falhou. O resultado do email de
+  // problemas (enviado pela própria validação) só entra no aviso que já vai
+  // aparecer — sozinho, ele não é motivo pra segurar o envio.
+  if (autoRunProblems.value.length) {
+    const problemsEmail = result.problemsEmail
+    if (problemsEmail?.sent) {
+      autoRunProblems.value.push(`Relatório dos problemas enviado por email para ${problemsEmail.to.join(', ')}.`)
+    } else if (problemsEmail?.message && !problemsEmail.skipped) {
+      autoRunProblems.value.push(problemsEmail.message)
+    }
+    return
+  }
 
-  // Contador é o destinatário principal; o email da empresa (se houver) vai junto, como cópia.
+  // Contador é o destinatário principal; empresa e Software House (se houver) vão junto, como cópia.
   const email = String(accountant?.email ?? '').trim()
   if (accountant?.sendWithoutReview && email) {
-    const companyEmail = String((await window.api.settings.getCompany())?.email ?? '').trim()
-    await send([...new Set([email, companyEmail].filter(Boolean))])
+    await send(await defaultRecipients())
     if (exportOk.value && !exportWarning.value) {
       autoRunSuccess.value = exportMessage.value
       startAutoClose()

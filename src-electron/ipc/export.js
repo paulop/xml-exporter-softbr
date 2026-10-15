@@ -2,10 +2,11 @@ import { dialog, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { store, lastExportStore } from '../lib/store.js'
 import { buildLogWorkbookBuffer } from '../lib/xlsxReport.js'
-import { uploadZip, sendDownloadEmail, UploadError } from '../lib/xmlUpload.js'
+import { uploadZip, sendDownloadEmail, sendProblemsEmail, UploadError } from '../lib/xmlUpload.js'
 
 // archiver é CommonJS; require() evita problemas de interop ESM/CJS
 // que o bundler do processo main do Electron introduz com "import default".
@@ -147,9 +148,124 @@ export async function downloadZip (items, period, onProgress = () => {}) {
   return { ok: true, path: zipPath, fileCount: validItems.length }
 }
 
+// A logo fica salva como data URL ("data:image/png;base64,..."); pro email
+// vai separada em tipo + base64 puro, ou null se não houver logo.
+function splitDataUrl (dataUrl) {
+  const match = /^data:([^;,]+);base64,(.+)$/.exec(String(dataUrl ?? ''))
+  return match ? { mimeType: match[1], base64: match[2] } : null
+}
+
 function formatIsoDate (iso) {
   const [y, m, d] = String(iso ?? '').split('-')
   return d ? `${d}/${m}/${y}` : ''
+}
+
+// Contrato com o backend: manda todos os dados das partes e é ele quem
+// decide assunto, saudação e corpo do email.
+function emailParties () {
+  const company = store.get('company')
+  const accountant = store.get('accountant')
+  const softwareHouse = store.get('softwareHouse')
+  return {
+    empresa: { cnpj: company?.cnpj ?? '', nome: company?.name ?? '', email: company?.email ?? '' },
+    contador: {
+      cnpj: accountant?.cnpj ?? '',
+      nome: accountant?.name ?? '',
+      whatsapp: accountant?.whatsapp ?? '',
+      email: accountant?.email ?? ''
+    },
+    softwareHouse: {
+      cnpj: softwareHouse?.cnpj ?? '',
+      nome: softwareHouse?.name ?? '',
+      whatsapp: softwareHouse?.whatsapp ?? '',
+      email: softwareHouse?.email ?? '',
+      logo: splitDataUrl(softwareHouse?.logo)
+    }
+  }
+}
+
+function sequenceSummary (row) {
+  return {
+    cnpj: row.cnpj,
+    serie: row.serie,
+    numeroInicial: row.numeroInicial,
+    numeroFinal: row.numeroFinal,
+    quantidadeEsperada: row.quantidadeEsperada,
+    quantidadeEncontrada: row.quantidadeEncontrada
+  }
+}
+
+// Validação com lacunas que não foram encontradas em lugar nenhum (NFC-e do
+// banco ou NF-e das pastas avulsas) ou com outros problemas (conexão que
+// falhou na consulta, pasta de busca inacessível): manda só pra Software
+// House, que dá o suporte, um email com o relatório no corpo, sem .zip. Roda
+// sozinho ao fim de cada "Validar / Auditar", mas validar de novo o mesmo
+// período com o mesmo resultado não repete o email. Devolve null quando não
+// há problema.
+export async function sendProblemsReport (result, period, sourceErrors = [], onProgress = () => {}) {
+  const series = [
+    ...(result.reportRows ?? [])
+      .filter((r) => r.lacunasNaoRecuperadas.length > 0)
+      .map((r) => ({ tipo: 'NFC-e', conexao: r.conexao, ...sequenceSummary(r), numeros: r.lacunasNaoRecuperadas })),
+    ...(result.nfeFolderValidation ?? [])
+      .filter((r) => r.lacunas.length > 0)
+      .map((r) => ({ tipo: 'NF-e', conexao: 'Pasta de NF-e avulsa', ...sequenceSummary(r), numeros: r.lacunas }))
+  ]
+  const problemas = [
+    // Já vêm prontas da consulta ("CONEXAO: erro", "Pasta de NF-e avulsa ...").
+    ...sourceErrors.map(String),
+    ...(result.inaccessibleFolders ?? []).map((f) => `Pasta de busca "${f}": pasta não encontrada ou sem acesso`)
+  ]
+  if (series.length === 0 && problemas.length === 0) return null
+
+  const cnpj = store.get('company')?.cnpj
+  if (!cnpj) {
+    return { sent: false, message: 'Relatório de problemas não enviado por email: cadastre o CNPJ da empresa (menu Empresa).' }
+  }
+  const softwareHouseEmail = String(store.get('softwareHouse')?.email ?? '').trim()
+  if (!softwareHouseEmail) {
+    return {
+      sent: false,
+      message: 'Relatório de problemas não enviado por email: cadastre o email da Software House (menu Software House).'
+    }
+  }
+  const to = [softwareHouseEmail]
+
+  const lacunas = { total: series.reduce((sum, s) => sum + s.numeros.length, 0), series }
+  const periodo = { inicio: period?.dataInicial ?? '', fim: period?.dataFinal ?? '' }
+  const signature = createHash('sha256').update(JSON.stringify({ cnpj, to, periodo, lacunas, problemas })).digest('hex')
+  if (lastExportStore.get('lastProblemsReport')?.signature === signature) {
+    return {
+      sent: false,
+      skipped: true,
+      message: 'O relatório com esses mesmos problemas já tinha sido enviado por email; não foi enviado de novo.'
+    }
+  }
+
+  const resumo = [
+    lacunas.total > 0 ? `${lacunas.total} nota(s) faltando na sequência que não foram localizadas` : null,
+    problemas.length > 0 ? `${problemas.length} outro(s) problema(s)` : null
+  ].filter(Boolean).join(' e ')
+
+  onProgress()
+  try {
+    await sendProblemsEmail({
+      cnpj,
+      to,
+      ...emailParties(),
+      periodo,
+      lacunas,
+      problemas,
+      message: `A validação dos XMLs de ${formatIsoDate(periodo.inicio)} a ${formatIsoDate(periodo.fim)} encontrou ` +
+        `${resumo}. O arquivo não foi enviado; verifique os itens abaixo.`
+    })
+  } catch (err) {
+    if (!(err instanceof UploadError)) throw err
+    return { sent: false, message: `Relatório de problemas não enviado por email: ${err.message}` }
+  }
+
+  lastExportStore.set('lastProblemsReport', { signature, to, period, sentAt: new Date().toISOString() })
+  return { sent: true, to }
 }
 
 // "Enviar": gera o .zip exatamente como "Baixar .zip" (fica salvo também na
@@ -196,21 +312,11 @@ export async function sendZip (items, period, emails, onProgress = () => {}, onU
   let emailError = null
   try {
     const periodo = `${formatIsoDate(period?.dataInicial)} a ${formatIsoDate(period?.dataFinal)}`
-    // Contrato com o backend: manda todos os dados e é ele quem decide
-    // assunto, saudação e corpo do email.
-    const company = store.get('company')
-    const accountant = store.get('accountant')
     await sendDownloadEmail({
       cnpj: uploaded.cnpj ?? cnpj,
       key: uploaded.key,
       to: emails,
-      empresa: { cnpj: company?.cnpj ?? '', nome: company?.name ?? '', email: company?.email ?? '' },
-      contador: {
-        cnpj: accountant?.cnpj ?? '',
-        nome: accountant?.name ?? '',
-        whatsapp: accountant?.whatsapp ?? '',
-        email: accountant?.email ?? ''
-      },
+      ...emailParties(),
       arquivo: { nome: path.basename(zip.path), quantidadeXml: zip.fileCount },
       periodo: { inicio: period?.dataInicial ?? '', fim: period?.dataFinal ?? '' },
       message: `Segue o arquivo com ${zip.fileCount} XML(s) de notas fiscais e o relatório de auditoria, ` +

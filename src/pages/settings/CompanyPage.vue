@@ -10,7 +10,7 @@
 
         <q-banner v-if="setup" dense rounded class="bg-blue-1 text-primary q-mb-md">
           <template #avatar><q-icon name="waving_hand" /></template>
-          Configuração inicial (1 de 2): informe o CNPJ da empresa licenciada.
+          Configuração inicial (1 de 3): informe o CNPJ da empresa licenciada.
         </q-banner>
 
         <q-form class="q-gutter-sm" @submit="save">
@@ -44,7 +44,7 @@
             dense
             type="email"
             label="Email"
-            hint="Recebe uma cópia do envio dos XMLs, junto com o contador."
+            hint="Recebe uma cópia do envio dos XMLs, junto com o contador e a Software House."
             :rules="[(v) => !v || isValidEmail(v) || 'Email inválido']"
           >
             <template #prepend><q-icon name="mail" size="18px" /></template>

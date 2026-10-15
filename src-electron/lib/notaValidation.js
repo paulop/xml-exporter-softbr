@@ -880,7 +880,7 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
   reportStep(7, 'Relatório de quebras e pacote final')
   const reportRows = groups.map((g) => {
     const lacunasNaoRecuperadas = naoRecuperados
-      .filter((x) => x.serie === g.serie)
+      .filter((x) => x.serie === g.serie && x.cnpj === g.cnpj)
       .map((x) => x.numero)
     return {
       conexao: g.conexoes?.join(', ') ?? '',

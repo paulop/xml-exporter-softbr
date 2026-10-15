@@ -61,7 +61,7 @@
 
         <div class="text-caption text-grey q-mt-sm">
           Cada destinatário recebe por email um link para baixar o .zip.
-          Alterações aqui valem só para este envio. Para mudar os emails padrão, use os menus Contador e Empresa.
+          Alterações aqui valem só para este envio. Para mudar os emails padrão, use os menus Contador, Empresa e Software House.
         </div>
       </q-card-section>
 
@@ -76,6 +76,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { isValidEmail } from '@/utils/validators'
+import { defaultRecipients } from '@/utils/setup'
 
 defineProps({
   noteCount: { type: Number, default: 0 },
@@ -91,13 +92,13 @@ const formRef = ref(null)
 const emails = ref([''])
 const accountantName = ref('')
 
-// Sempre reabre com os emails cadastrados (contador e, se houver, o da
-// empresa, que recebe uma cópia), descartando o que foi editado num envio anterior.
+// Sempre reabre com os emails cadastrados (contador e, se houver, os da
+// empresa e da Software House, que recebem cópia), descartando o que foi
+// editado num envio anterior.
 async function load () {
   const accountant = await window.api.settings.getAccountant()
-  const company = await window.api.settings.getCompany()
   accountantName.value = accountant?.name ?? ''
-  const preset = [...new Set([accountant?.email, company?.email].map((e) => String(e ?? '').trim()).filter(Boolean))]
+  const preset = await defaultRecipients()
   emails.value = preset.length ? preset : ['']
 }
 

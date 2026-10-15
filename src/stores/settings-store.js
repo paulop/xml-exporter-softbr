@@ -7,6 +7,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const searchFolders = ref([])
   const nfeCopyFolders = ref([])
   const company = ref({ cnpj: '', name: '', email: '' })
+  const softwareHouse = ref({ cnpj: '', name: '', whatsapp: '', email: '', logo: '' })
   const accountant = ref({ name: '', cnpj: '', whatsapp: '', email: '', autoOpen: false, sendWithoutReview: false })
   const sql = ref('')
   const defaultSql = ref('')
@@ -17,6 +18,7 @@ export const useSettingsStore = defineStore('settings', () => {
     searchFolders.value = (await window.api.settings.getSearchFolders()) ?? []
     nfeCopyFolders.value = (await window.api.settings.getNfeCopyFolders()) ?? []
     company.value = (await window.api.settings.getCompany()) ?? company.value
+    await loadSoftwareHouse()
     accountant.value = (await window.api.settings.getAccountant()) ?? accountant.value
     sql.value = await window.api.query.getSql()
     defaultSql.value = await window.api.query.getDefaultSql()
@@ -31,6 +33,17 @@ export const useSettingsStore = defineStore('settings', () => {
   async function saveCompany (payload) {
     company.value = await window.api.settings.setCompany(toPlain(payload))
     return company.value
+  }
+
+  // Separado do load(): o cabeçalho só precisa disso (pra mostrar a logo).
+  async function loadSoftwareHouse () {
+    softwareHouse.value = (await window.api.settings.getSoftwareHouse()) ?? softwareHouse.value
+    return softwareHouse.value
+  }
+
+  async function saveSoftwareHouse (payload) {
+    softwareHouse.value = await window.api.settings.setSoftwareHouse(toPlain(payload))
+    return softwareHouse.value
   }
 
   async function saveAccountant (payload) {
@@ -75,6 +88,7 @@ export const useSettingsStore = defineStore('settings', () => {
     searchFolders,
     nfeCopyFolders,
     company,
+    softwareHouse,
     accountant,
     sql,
     defaultSql,
@@ -82,6 +96,8 @@ export const useSettingsStore = defineStore('settings', () => {
     load,
     chooseDestinationFolder,
     saveCompany,
+    loadSoftwareHouse,
+    saveSoftwareHouse,
     saveAccountant,
     addSearchFolder,
     removeSearchFolder,

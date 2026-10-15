@@ -295,6 +295,7 @@ async function run () {
   queryStore.validating = true
   queryStore.validated = false
   queryStore.uploaded = null
+  queryStore.unrecoveredGaps = 0
   cancelling.value = false
   progress.value = { step: 0, totalSteps: 7 }
 
@@ -304,7 +305,7 @@ async function run () {
 
   try {
     const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
-    const result = await window.api.validation.run(toPlain(queryStore.rows), period)
+    const result = await window.api.validation.run(toPlain(queryStore.rows), period, toPlain(queryStore.sourceErrors))
 
     if (result.cancelled) {
       $q.notify({ type: 'warning', message: 'Validação cancelada.' })
@@ -329,6 +330,14 @@ async function run () {
 
     queryStore.selected = result.finalItems
     queryStore.validated = true
+    queryStore.unrecoveredGaps = sequenceRows.value.reduce((sum, r) => sum + r.lacunas.length, 0)
+
+    const problemsEmail = result.problemsEmail
+    if (problemsEmail?.sent) {
+      $q.notify({ type: 'info', message: `Relatório de problemas enviado por email para ${problemsEmail.to.join(', ')}.` })
+    } else if (problemsEmail?.message) {
+      $q.notify({ type: problemsEmail.skipped ? 'info' : 'warning', message: problemsEmail.message })
+    }
     return result
   } catch (err) {
     $q.notify({ type: 'negative', message: err.message ?? String(err) })

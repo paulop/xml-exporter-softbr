@@ -97,20 +97,26 @@ export async function uploadZip ({ cnpj, filePath, filename, onProgress = () => 
 
 // Passo 3: só depois do PUT com 200 (o serviço confere se o arquivo existe).
 // O link no email expira no padrão do serviço (7 dias).
-export async function sendDownloadEmail ({ cnpj, key, to, empresa, contador, arquivo, periodo, message }) {
+export function sendDownloadEmail ({ cnpj, key, to, empresa, contador, softwareHouse, arquivo, periodo, message }) {
+  return postEmail({ tipo: 'xml', cnpj, key, to, empresa, contador, softwareHouse, arquivo, periodo, message })
+}
+
+// Validação com lacunas não recuperadas ou outros problemas: email sem anexo
+// nem link, só com o relatório no corpo.
+export function sendProblemsEmail ({ cnpj, to, empresa, contador, softwareHouse, periodo, lacunas, problemas, message }) {
+  return postEmail({ tipo: 'problemas', cnpj, to, empresa, contador, softwareHouse, periodo, lacunas, problemas, message })
+}
+
+// Os dois emails vão pro mesmo endpoint; o `tipo` diz ao backend qual modelo usar.
+async function postEmail ({ to, message, ...payload }) {
   let res
   try {
     res = await fetch(SEND_EMAIL_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        cnpj,
-        key,
+        ...payload,
         to: to.slice(0, MAX_EMAIL_RECIPIENTS),
-        empresa,
-        contador,
-        arquivo,
-        periodo,
         ...(message ? { message: message.slice(0, 1000) } : {})
       })
     })

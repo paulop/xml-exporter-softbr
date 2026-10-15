@@ -16,6 +16,9 @@ export const useQueryStore = defineStore('query', () => {
   const totalValor = ref(0)
   const querying = ref(false)
   const lastError = ref('')
+  // Fontes (conexões) que falharam na última consulta e ficaram de fora: a
+  // validação repassa pro email de problemas.
+  const sourceErrors = ref([])
   const groupFilter = ref(null)
   // O .zip só pode ser baixado depois de rodar "Validar / Auditar" sobre o
   // resultado da consulta atual; uma nova consulta exige validar de novo.
@@ -25,6 +28,10 @@ export const useQueryStore = defineStore('query', () => {
   // pra reenviar o mesmo arquivo sem gerar tudo de novo. Zera ao validar ou
   // consultar outra vez, já que o conteúdo do .zip deixa de valer.
   const uploaded = ref(null)
+  // Lacunas que a última validação não conseguiu recuperar (NFC-e e NF-e
+  // avulsa): mostra o aviso pra contatar a Software House. Zera junto com
+  // `validated`.
+  const unrecoveredGaps = ref(0)
 
   // Cada clique em "Consultar" gera um token novo. Se o usuário mudar o
   // período e consultar de novo antes da primeira resposta chegar, a
@@ -55,9 +62,11 @@ export const useQueryStore = defineStore('query', () => {
 
     querying.value = true
     lastError.value = ''
+    sourceErrors.value = []
     groupFilter.value = null
     validated.value = false
     uploaded.value = null
+    unrecoveredGaps.value = 0
     // Limpa a tabela imediatamente: o resultado é sempre a consulta do
     // período atual, nunca um acúmulo do período anterior.
     rows.value = []
@@ -76,7 +85,8 @@ export const useQueryStore = defineStore('query', () => {
       totalValor.value = result.totalValor
       // todas as notas vêm pré-selecionadas por padrão
       selected.value = [...result.rows]
-      return result.errors ?? []
+      sourceErrors.value = result.errors ?? []
+      return sourceErrors.value
     } catch (err) {
       if (token !== requestToken) return []
 
@@ -100,10 +110,12 @@ export const useQueryStore = defineStore('query', () => {
     totalValor,
     querying,
     lastError,
+    sourceErrors,
     groupFilter,
     validating,
     validated,
     uploaded,
+    unrecoveredGaps,
     setGroupFilter,
     clearGroupFilter,
     shiftMonth,

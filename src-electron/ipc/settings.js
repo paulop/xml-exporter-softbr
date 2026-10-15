@@ -1,4 +1,6 @@
 import { dialog, shell } from 'electron'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { store } from '../lib/store.js'
 import { syncScheduledTask } from '../lib/scheduledTask.js'
 
@@ -30,6 +32,54 @@ export function setCompany (payload) {
     email: String(payload?.email ?? '').trim()
   })
   return store.get('company')
+}
+
+// Software House que fornece o sistema: recebe uma cópia do email de envio,
+// e a logo aparece no cabeçalho do app.
+export function getSoftwareHouse () {
+  return store.get('softwareHouse')
+}
+
+export function setSoftwareHouse (payload) {
+  const logo = String(payload?.logo ?? '')
+  store.set('softwareHouse', {
+    cnpj: String(payload?.cnpj ?? ''),
+    name: String(payload?.name ?? '').trim(),
+    // Telefone fixo ou WhatsApp, só dígitos (DDD + 8 ou 9).
+    whatsapp: String(payload?.whatsapp ?? ''),
+    email: String(payload?.email ?? '').trim(),
+    logo: logo.startsWith('data:image/') ? logo : ''
+  })
+  return store.get('softwareHouse')
+}
+
+// A logo fica embutida no config.json como data URL, por isso o limite de tamanho.
+const LOGO_MAX_BYTES = 512 * 1024
+const LOGO_MIME_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp'
+}
+
+// Só escolhe e lê o arquivo: quem grava é o "Salvar" da tela (setSoftwareHouse).
+export async function chooseSoftwareHouseLogo () {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
+  })
+  if (result.canceled || result.filePaths.length === 0) return { ok: false }
+
+  const filePath = result.filePaths[0]
+  const mime = LOGO_MIME_TYPES[path.extname(filePath).toLowerCase()]
+  if (!mime) return { ok: false, message: 'Formato não suportado. Use PNG, JPG, SVG ou WebP.' }
+
+  const data = await fs.readFile(filePath)
+  if (data.length > LOGO_MAX_BYTES) {
+    return { ok: false, message: 'A logo passa de 512 KB. Escolha uma imagem menor.' }
+  }
+  return { ok: true, logo: `data:${mime};base64,${data.toString('base64')}` }
 }
 
 // Consulta o nome fantasia (ou a razão social, se não houver) pelo CNPJ na ReceitaWS.

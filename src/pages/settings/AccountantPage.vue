@@ -10,7 +10,7 @@
 
         <q-banner v-if="setup" dense rounded class="bg-blue-1 text-primary q-mb-md">
           <template #avatar><q-icon name="waving_hand" /></template>
-          Configuração inicial (2 de 2): informe o contador que recebe os XMLs.
+          Configuração inicial (3 de 3): informe o contador que recebe os XMLs.
         </q-banner>
 
         <div class="text-caption text-grey q-mb-sm">
@@ -44,10 +44,10 @@
             v-model="form.whatsapp"
             filled
             dense
-            label="WhatsApp"
-            mask="(##) #####-####"
+            label="Telefone / WhatsApp"
+            :mask="phoneMask"
             unmasked-value
-            :rules="[(v) => !v || v.length === 11 || 'Informe DDD + 9 dígitos']"
+            :rules="[(v) => !v || v.length === 10 || v.length === 11 || 'Informe DDD + telefone fixo (8 dígitos) ou celular (9 dígitos)']"
             hide-bottom-space
           >
             <template #prepend><q-icon name="chat" size="18px" /></template>
@@ -127,6 +127,10 @@ const form = reactive({ name: '', cnpj: '', whatsapp: '', email: '', autoOpen: f
 const saving = ref(false)
 const lookingUp = ref(false)
 const savingToggles = ref(false)
+
+// Fixo (10 dígitos com DDD) ou celular (11). Até o 10º dígito formata como
+// fixo, mas aceita mais um; ao digitar o 11º, passa pro formato de celular.
+const phoneMask = computed(() => (form.whatsapp.length > 10 ? '(##) #####-####' : '(##) ####-#####'))
 
 // Ao completar um CNPJ válido, busca o nome (fantasia ou razão social) e preenche o campo.
 async function onCnpjInput (value) {

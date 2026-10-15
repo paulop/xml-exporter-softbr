@@ -32,7 +32,7 @@ Para publicar manualmente (sem CI), rode `GH_TOKEN=xxxx npx quasar build -m elec
 
 ## Configuração inicial
 
-1. Na primeira abertura (ou enquanto estiverem vazias), o app começa pelas telas **Empresa** (CNPJ da empresa licenciada) e **Contador** (nome e email de quem recebe os XMLs), nessa ordem. Depois de salvar as duas, segue para a tela principal.
+1. Na primeira abertura (ou enquanto estiverem vazias), o app começa pelas telas **Empresa** (CNPJ da empresa licenciada), **Software House** (CNPJ, nome, telefone/WhatsApp, email e logo de quem fornece o sistema) e **Contador** (nome e email de quem recebe os XMLs), nessa ordem. Depois de salvar as três, segue para a tela principal. Instalações que já tinham o Contador preenchido antes da tela Software House existir não são barradas por ela (senão o envio mensal automático parava ali); nesses casos ela é preenchida pelo menu.
 2. Vá em **Configurações → Conexões** e cadastre a conexão com o SQL Server da(s) filial(is).
 3. Em **Configurações → Conexões**, abaixo da lista de conexões, ajuste o SQL padrão caso os nomes de tabela/coluna do seu banco sejam diferentes (precisa manter os parâmetros `@dataInicial` e `@dataFinal`).
 4. Em **Configurações → Pastas**, escolha a pasta onde os .zip/XML serão salvos.

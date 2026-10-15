@@ -28,6 +28,10 @@ const schema = {
     type: 'object',
     default: { cnpj: '', name: '', email: '' }
   },
+  softwareHouse: {
+    type: 'object',
+    default: { cnpj: '', name: '', whatsapp: '', email: '', logo: '' }
+  },
   accountant: {
     type: 'object',
     default: { name: '', cnpj: '', whatsapp: '', email: '', autoOpen: false, sendWithoutReview: false }
@@ -54,7 +58,10 @@ export const store = new Store({ name: 'config', schema })
 export const lastExportStore = new Store({
   name: 'last-export',
   schema: {
-    lastSuccess: { type: ['object', 'null'], default: null }
+    lastSuccess: { type: ['object', 'null'], default: null },
+    // Último relatório de problemas mandado por email (ver sendProblemsReport
+    // em ipc/export.js), pra não repetir o mesmo email a cada validação.
+    lastProblemsReport: { type: ['object', 'null'], default: null }
   }
 })
 

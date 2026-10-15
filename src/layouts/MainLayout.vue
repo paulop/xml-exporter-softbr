@@ -3,6 +3,12 @@
     <q-header elevated>
       <q-toolbar>
         <q-toolbar-title class="row items-center no-wrap">
+          <img
+            v-if="settingsStore.softwareHouse.logo"
+            :src="settingsStore.softwareHouse.logo"
+            :alt="settingsStore.softwareHouse.name"
+            class="software-house-logo q-mr-sm"
+          >
           <span>TOTVS Chef | XML</span>
           <q-chip v-if="appVersion" dense outline color="white" text-color="white" class="q-ml-sm">
             v{{ appVersion }}
@@ -51,6 +57,11 @@
                 <q-item-section>Contador</q-item-section>
               </q-item>
 
+              <q-item v-close-popup clickable to="/settings/software-house">
+                <q-item-section avatar><q-icon name="code" /></q-item-section>
+                <q-item-section>Software House</q-item-section>
+              </q-item>
+
               <q-separator />
 
               <q-item clickable :disable="checkingUpdate" @click="checkForUpdates">
@@ -75,8 +86,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useQuasar } from 'quasar'
+import { useSettingsStore } from '@/stores/settings-store'
 
 const $q = useQuasar()
+const settingsStore = useSettingsStore()
 const updateReady = ref(false)
 const updateVersion = ref('')
 const appVersion = ref('')
@@ -104,6 +117,7 @@ let unsubscribeDownloaded
 
 onMounted(async () => {
   appVersion.value = await window.api.app.getVersion()
+  await settingsStore.loadSoftwareHouse()
 
   // O download é automático (processo main); aqui só avisa quando terminou.
   unsubscribeDownloaded = window.api.app.onUpdateDownloaded((info) => {
@@ -116,3 +130,15 @@ onUnmounted(() => {
   unsubscribeDownloaded?.()
 })
 </script>
+
+<style scoped>
+/* Fundo branco: a logo pode ter cores que somem no azul do cabeçalho. */
+.software-house-logo {
+  height: 32px;
+  max-width: 140px;
+  object-fit: contain;
+  background: white;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+</style>
