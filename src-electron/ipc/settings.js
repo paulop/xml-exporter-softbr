@@ -82,23 +82,34 @@ export async function chooseSoftwareHouseLogo () {
   return { ok: true, logo: `data:${mime};base64,${data.toString('base64')}` }
 }
 
-// Consulta o nome fantasia (ou a razão social, se não houver) pelo CNPJ na ReceitaWS.
-// Feito no main process pra não esbarrar em CORS. Retorna '' se não achar.
-export async function lookupCnpj (cnpj) {
-  const digits = String(cnpj ?? '').replace(/\D/g, '')
-  if (digits.length !== 14) return ''
+async function fetchJson (url) {
   try {
-    const res = await fetch(`https://receitaws.com.br/v1/cnpj/${digits}`, {
+    const res = await fetch(url, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(10000)
     })
-    if (!res.ok) return ''
-    const data = await res.json()
-    if (data?.status === 'ERROR') return ''
-    return String(data?.fantasia || data?.nome || '').trim()
+    return res.ok ? await res.json() : null
   } catch {
-    return ''
+    return null
   }
+}
+
+// Consulta o nome fantasia (ou a razão social, se não houver) pelo CNPJ.
+// Feito no main process pra não esbarrar em CORS. Retorna '' se não achar.
+// Minha Receita primeiro (a mesma base que a BrasilAPI usa por trás); a
+// ReceitaWS fica de reserva porque no plano gratuito devolve 429 já a partir
+// da 2ª consulta no mesmo minuto.
+export async function lookupCnpj (cnpj) {
+  const digits = String(cnpj ?? '').toUpperCase().replace(/[^A-Z\d]/g, '')
+  if (digits.length !== 14) return ''
+
+  const minhaReceita = await fetchJson(`https://minhareceita.org/${digits}`)
+  const name = String(minhaReceita?.nome_fantasia || minhaReceita?.razao_social || '').trim()
+  if (name) return name
+
+  const receitaWs = await fetchJson(`https://receitaws.com.br/v1/cnpj/${digits}`)
+  if (receitaWs?.status === 'ERROR') return ''
+  return String(receitaWs?.fantasia || receitaWs?.nome || '').trim()
 }
 
 // Contato do contador, destino do envio do .zip de XML.

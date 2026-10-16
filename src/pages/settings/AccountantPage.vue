@@ -18,13 +18,11 @@
         </div>
 
         <q-form class="q-gutter-sm" @submit="save">
-          <q-input
+          <cnpj-input
             v-model="form.cnpj"
             filled
             dense
             label="CNPJ do contador"
-            mask="##.###.###/####-##"
-            unmasked-value
             :rules="[(v) => !v || isValidCnpj(v) || 'CNPJ inválido']"
             hide-bottom-space
             @update:model-value="onCnpjInput"
@@ -112,6 +110,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useSettingsStore } from '@/stores/settings-store'
 import { isValidCnpj, isValidEmail } from '@/utils/validators'
+import CnpjInput from '@/components/CnpjInput.vue'
 import { nextSetupLocation } from '@/utils/setup'
 
 const $q = useQuasar()

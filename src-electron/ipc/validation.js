@@ -25,7 +25,7 @@ export async function run (rows, period, sourceErrors = []) {
       rows: rows ?? [],
       folders,
       period: period ?? {},
-      companyCnpj: String(store.get('company')?.cnpj ?? '').replace(/\D/g, '') || null,
+      companyCnpj: String(store.get('company')?.cnpj ?? '').toUpperCase().replace(/[^A-Z\d]/g, '') || null,
       onProgress: (info) => mainWindowRef?.webContents.send('validation:progress', info),
       isCancelled: () => cancelRequested
     })
