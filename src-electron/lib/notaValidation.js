@@ -224,6 +224,7 @@ export function extractChaveFromFileName (fileName) {
 
 export function decodeChave (chave) {
   return {
+    uf: chave.slice(0, 2),
     cnpj: chave.slice(6, 20),
     // posições 21-22 são o "mod" (modelo do documento fiscal: 65 = NFC-e,
     // 55 = NF-e) — vêm antes da série.
@@ -355,6 +356,9 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
   const byChave = new Map()
   const byNumSerieCnpj = new Map()
   const byNumSerie = new Map()
+  // Início da chave (UF + AAMM + CNPJ) + série + número: o mesmo número pode
+  // existir em mais de um mês, e os índices acima só guardam o primeiro.
+  const byPrefixoNumSerie = new Map()
   // Todos os números de cada série (CNPJ+modelo+série) que existem na pasta,
   // com o mês de emissão da chave — é o que permite achar notas ANTES do
   // primeiro ou DEPOIS do último número que o banco devolveu (ver
@@ -396,6 +400,9 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
       const fullKey = `${cnpj}|${numSerieKey}`
       if (!byNumSerieCnpj.has(fullKey)) byNumSerieCnpj.set(fullKey, { filePath, folder, via: 'chave-no-nome' })
 
+      const prefixoKey = `${chave.slice(0, 20)}|${numSerieKey}`
+      if (!byPrefixoNumSerie.has(prefixoKey)) byPrefixoNumSerie.set(prefixoKey, { filePath, folder, via: 'chave-no-nome' })
+
       const serieKey = `${cnpj}|${modelo}|${serie}`
       if (!bySerie.has(serieKey)) bySerie.set(serieKey, { cnpj, modelo, serie, numeros: new Map() })
       const numeros = bySerie.get(serieKey).numeros
@@ -436,10 +443,27 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
     }
   }
 
-  return { byChave, byNumSerieCnpj, byNumSerie, bySerie, totalFound: allFiles.length }
+  return { byChave, byNumSerieCnpj, byNumSerie, byPrefixoNumSerie, bySerie, totalFound: allFiles.length }
 }
 
-function lookupByNumeroSerie (folderIndex, cnpj, serie, numero) {
+// Inícios de chave (UF + AAMM + CNPJ) que uma nota da série pode ter no
+// período, um por mês. Sem UF/CNPJ conhecidos não dá pra montar.
+function prefixosDoPeriodo (group, months) {
+  if (!group.uf || !group.cnpj) return []
+  return [...months].map((month) => {
+    const [ano, mes] = month.split('|')
+    return `${group.uf}${ano.padStart(2, '0')}${mes.padStart(2, '0')}${group.cnpj}`
+  })
+}
+
+// Procura primeiro pelo início da chave. O resto cobre o que não tem chave no
+// nome (lote de envio, inutilização) e o número que só existe em outro mês,
+// que a data de emissão separa depois.
+function lookupByNumeroSerie (folderIndex, prefixos, cnpj, serie, numero) {
+  for (const prefixo of prefixos) {
+    const match = folderIndex.byPrefixoNumSerie.get(`${prefixo}|${serie}|${numero}`)
+    if (match) return match
+  }
   const exact = folderIndex.byNumSerieCnpj.get(`${cnpj ?? ''}|${serie}|${numero}`)
   if (exact) return exact
   return folderIndex.byNumSerie.get(`${serie}|${numero}`) ?? null
@@ -482,13 +506,15 @@ export function detectGroups (rows) {
       if (parsed.cnpj) { cnpj = parsed.cnpj; break }
     }
 
-    // Modelo (65/55) só existe na chave; o CNPJ também sai dela quando
+    // UF e modelo (65/55) só existem na chave; o CNPJ também sai dela quando
     // nenhuma linha da série tem XML legível no banco.
+    let uf = null
     let modelo = null
     for (const row of groupRows) {
       const chave = String(row.chave ?? '')
       if (!/^\d{44}$/.test(chave)) continue
       const decoded = decodeChave(chave)
+      uf = decoded.uf
       modelo = decoded.modelo
       cnpj = cnpj ?? decoded.cnpj
       break
@@ -497,6 +523,7 @@ export function detectGroups (rows) {
     groups.push({
       serie,
       cnpj,
+      uf,
       modelo,
       conexoes,
       numeroInicial,
@@ -679,6 +706,7 @@ async function extendGroupsFromFolders (groups, folderIndex, { period, companyCn
       const group = {
         serie,
         cnpj: confirmados[0]._parsed.cnpj ?? decoded?.cnpj ?? null,
+        uf: decoded?.uf ?? null,
         modelo: decoded?.modelo ?? null,
         conexoes: [],
         numerosBanco: new Set(),
@@ -796,19 +824,59 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
 
   const recoveredGaps = []
   const naoRecuperados = []
+  let lacunasDeOutroPeriodo = 0
+
+  // Uma nota emitida no período com número antigo (ex.: número 10910 emitido
+  // em outubro, quando a sequência do mês começa em 17453) estica a faixa da
+  // série, e tudo no meio vira "lacuna" mesmo sendo nota de meses anteriores.
+  // Por isso o que a pasta devolve aqui passa pela data de emissão do XML.
+  // Inutilização só sai quando é anterior ao período: a baixa de um número do
+  // período pode ser feita depois do fim dele e continua explicando a lacuna.
+  const months = monthsInRange(period?.dataInicial, period?.dataFinal)
+  const { startDate, endDate } = periodBounds(period?.dataInicial, period?.dataFinal)
+  const anteriorAoPeriodo = (parsed) => !!startDate && new Date(parsed.dataEmissao) < startDate
+  const foraDoPeriodo = (parsed) => (parsed.tipo === 'inutilizacao'
+    ? anteriorAoPeriodo(parsed)
+    : !withinPeriod(parsed.dataEmissao, startDate, endDate))
 
   for (const group of groups) {
+    const prefixos = prefixosDoPeriodo(group, months)
+    const semArquivo = []
+    const anteriores = new Set()
+    let outroPeriodo = 0
+
     for (const numero of group.lacunas) {
       if (isCancelled?.()) throw new ValidationCancelledError()
 
-      const match = lookupByNumeroSerie(folderIndex, group.cnpj, group.serie, numero)
+      const match = lookupByNumeroSerie(folderIndex, prefixos, group.cnpj, group.serie, numero)
       const found = await loadFolderEntry(match)
-      if (found?.parsed.wellFormed) {
-        recoveredGaps.push(buildRecoveredItem({ numero, serie: group.serie, cnpj: group.cnpj }, found))
+      // A busca sem CNPJ pode devolver o mesmo número de outra empresa.
+      const outraEmpresa = !!group.cnpj && !!found?.parsed.cnpj && found.parsed.cnpj !== group.cnpj
+      if (!found?.parsed.wellFormed || outraEmpresa) {
+        semArquivo.push(numero)
+      } else if (foraDoPeriodo(found.parsed)) {
+        outroPeriodo++
+        if (anteriorAoPeriodo(found.parsed)) anteriores.add(numero)
       } else {
-        naoRecuperados.push({ serie: group.serie, numero, cnpj: group.cnpj })
+        recoveredGaps.push(buildRecoveredItem({ numero, serie: group.serie, cnpj: group.cnpj }, found))
       }
     }
+
+    // A numeração anda junto com o tempo: número sem arquivo logo abaixo de
+    // uma nota anterior ao período também é anterior, não falta neste período.
+    // Percorre do maior pro menor pra propagar por trechos seguidos sem arquivo.
+    for (const numero of [...semArquivo].reverse()) {
+      if (!anteriores.has(numero + 1)) continue
+      anteriores.add(numero)
+      outroPeriodo++
+    }
+
+    for (const numero of semArquivo) {
+      if (!anteriores.has(numero)) naoRecuperados.push({ serie: group.serie, numero, cnpj: group.cnpj })
+    }
+
+    group.quantidadeEsperada -= outroPeriodo
+    lacunasDeOutroPeriodo += outroPeriodo
   }
 
   const recuperadosPorLote = recoveredGaps.filter((i) => i.metodoRecuperacao === METODO_RECUPERACAO['lote-envio']).length
@@ -820,7 +888,8 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
         (seriesSoNaPasta > 0 ? ` (inclui ${seriesSoNaPasta} série(s) sem nenhuma nota no banco)` : '')
       : null,
     recuperadosPorLote > 0 ? `${recuperadosPorLote} via lote de envio à SEFAZ (nem chegaram a ser gravadas no banco)` : null,
-    recuperadosPorInutilizacao > 0 ? `${recuperadosPorInutilizacao} eram faixa inutilizada (sem nota — número baixado junto à SEFAZ)` : null
+    recuperadosPorInutilizacao > 0 ? `${recuperadosPorInutilizacao} eram faixa inutilizada (sem nota — número baixado junto à SEFAZ)` : null,
+    lacunasDeOutroPeriodo > 0 ? `${lacunasDeOutroPeriodo} número(s) da faixa são de outro período e ficaram de fora` : null
   ].filter(Boolean).join('; ')
 
   steps.push({

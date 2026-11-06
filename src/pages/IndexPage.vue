@@ -517,18 +517,18 @@ function formatCurrency (value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0)
 }
 
+// Mostra a emissão como foi gravada pelo PDV, sem converter pro fuso da
+// máquina (mesma regra do relatório .xlsx). Do banco vem um Date cujo horário
+// gravado está nos campos UTC, por isso o toISOString; do XML vem o texto do
+// dhEmi, que já traz o horário local da emissão antes do offset.
 function formatDate (value) {
   if (!value) return ''
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).format(date)
+  if (value instanceof Date && Number.isNaN(value.getTime())) return ''
+  const text = value instanceof Date ? value.toISOString() : String(value)
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}:\d{2}))?/)
+  if (!match) return ''
+  const [, year, month, day, time] = match
+  return `${day}/${month}/${year}${time ? `, ${time}` : ''}`
 }
 
 // Devolve os problemas da consulta (conexões ou pastas de NF-e avulsa que
