@@ -146,14 +146,23 @@ async function attemptRecoveryViaUpdate (err) {
   app.quit()
 }
 
-void app.whenReady().then(async () => {
+const invokedAt = new Date()
+if (!app.requestSingleInstanceLock({ invokedAt: invokedAt.toISOString() })) app.quit()
+else void app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   registerQuasarRuntime()
-  const mainWindow = createWindow()
+  let mainWindow
 
   try {
+    const { AUTO_RUN_ARG } = await import('./lib/scheduledTask.js')
+    const { hasScheduledWork } = await import('./ipc/monthly.js')
+    if (process.argv.includes(AUTO_RUN_ARG) && !hasScheduledWork(invokedAt)) {
+      app.quit()
+      return
+    }
     const { registerIpcHandlers } = await import('./ipc/index.js')
-    registerIpcHandlers(mainWindow)
+    mainWindow = createWindow()
+    registerIpcHandlers(mainWindow, invokedAt)
   } catch (err) {
     await attemptRecoveryViaUpdate(err)
     return

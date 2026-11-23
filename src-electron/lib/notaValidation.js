@@ -38,6 +38,18 @@ function deepFind (node, tagName) {
   return undefined
 }
 
+function collectCancelledKeys (node, keys = new Set()) {
+  if (!node || typeof node !== 'object') return keys
+  const returns = node.retEvento
+  for (const response of Array.isArray(returns) ? returns : returns ? [returns] : []) {
+    const event = response?.infEvento
+    if (['110111', '110112'].includes(event?.tpEvento) &&
+        ['135', '155'].includes(event.cStat) && /^\d{44}$/.test(event.chNFe ?? '')) keys.add(event.chNFe)
+  }
+  for (const value of Object.values(node)) collectCancelledKeys(value, keys)
+  return keys
+}
+
 export class ValidationCancelledError extends Error {
   constructor () {
     super('Validação cancelada pelo usuário.')
@@ -64,13 +76,18 @@ function emptyParsed () {
 // formalmente baixada (sem venda nenhuma por trás) — não é uma nota, mas
 // precisa entrar na exportação do mesmo jeito, senão a sequência numérica
 // fica "furada" sem explicação pra contabilidade.
-function parseInutilizacao (infInut) {
+function parseInutilizacao (infInut, pedidoAssinado = false) {
   const nNFIni = infInut.nNFIni !== undefined ? Number(infInut.nNFIni) : null
   const nNFFin = infInut.nNFFin !== undefined ? Number(infInut.nNFFin) : null
-  const idAttr = String(infInut['@_Id'] || '').replace(/^ID/i, '')
+  const identity = [infInut.cUF, infInut.ano, infInut.CNPJ, infInut.mod, infInut.serie, nNFIni, nNFFin]
+  const idAttr = identity.every((value) => value !== null && value !== undefined && value !== '')
+    ? identity.join('-')
+    : String(infInut['@_Id'] || '').replace(/^ID/i, '')
 
   return {
     tipo: 'inutilizacao',
+    pedidoAssinado,
+    modelo: infInut.mod ?? null,
     numero: nNFIni,
     serie: infInut.serie !== undefined && infInut.serie !== null ? Number(infInut.serie) : null,
     cnpj: infInut.CNPJ ? String(infInut.CNPJ) : null,
@@ -79,7 +96,7 @@ function parseInutilizacao (infInut) {
     dataEmissao: infInut.dhRecbto ? String(infInut.dhRecbto) : null,
     temProtocolo: !!infInut.nProt,
     contingencia: false,
-    wellFormed: true,
+    wellFormed: Number.isInteger(nNFIni) && Number.isInteger(nNFFin) && nNFIni > 0 && nNFFin >= nNFIni,
     inutilizacao: { nNFIni, nNFFin, nProt: infInut.nProt ?? null, xMotivo: infInut.xMotivo ?? null }
   }
 }
@@ -95,6 +112,10 @@ export function parseXml (xmlString) {
     return emptyParsed()
   }
 
+  const request = deepFind(parsed, 'inutNFe')
+  const response = deepFind(parsed, 'retInutNFe')
+  if (response?.infInut) return parseInutilizacao(response.infInut)
+  if (request?.infInut) return request.Signature ? parseInutilizacao(request.infInut, true) : emptyParsed()
   const infInut = deepFind(parsed, 'infInut')
   if (infInut) return parseInutilizacao(infInut)
 
@@ -118,6 +139,7 @@ export function parseXml (xmlString) {
     chave,
     valor: vNF !== undefined && vNF !== null ? Number(vNF) : null,
     dataEmissao: ide?.dhEmi ? String(ide.dhEmi) : (ide?.dEmi ? String(ide.dEmi) : null),
+    dataAutorizacao: infProt?.dhRecbto ?? null,
     temProtocolo: !!infProt?.nProt,
     contingencia: tpEmis !== undefined && tpEmis !== null && Number(tpEmis) !== 1,
     wellFormed: true
@@ -156,9 +178,11 @@ export function parseXmlDetalhado (xmlString) {
       razaoSocialEmitente: null,
       modelo: infInut.mod !== undefined ? String(infInut.mod) : null,
       numero: infInut.nNFIni !== undefined ? Number(infInut.nNFIni) : null,
+      numeroFinal: infInut.nNFFin !== undefined ? Number(infInut.nNFFin) : null,
       serie: infInut.serie !== undefined ? Number(infInut.serie) : null,
       dataEmissao: infInut.dhRecbto ? String(infInut.dhRecbto) : null,
       chave: null,
+      idOriginal: String(infInut['@_Id'] || '').replace(/^ID/i, ''),
       protocolo: infInut.nProt ? String(infInut.nProt) : null,
       cStat: infInut.cStat !== undefined ? String(infInut.cStat) : null,
       xMotivo: infInut.xMotivo ? String(infInut.xMotivo) : null,
@@ -197,6 +221,8 @@ export function parseXmlDetalhado (xmlString) {
     serie: toNumber(ide?.serie),
     dataEmissao: ide?.dhEmi ? String(ide.dhEmi) : (ide?.dEmi ? String(ide.dEmi) : null),
     chave,
+    dataAutorizacao: infProt?.dhRecbto ?? null,
+    cancelamentoVinculado: !!chave && collectCancelledKeys(parsed).has(chave),
     protocolo: infProt?.nProt ? String(infProt.nProt) : null,
     cStat: infProt?.cStat !== undefined ? String(infProt.cStat) : null,
     xMotivo: infProt?.xMotivo ? String(infProt.xMotivo) : null,
@@ -266,6 +292,14 @@ export function periodBounds (dataInicial, dataFinal) {
   }
 }
 
+// Usa o dia civil registrado no documento, sem deslocar a data pelo fuso da máquina.
+export function withinCollectionPeriod (value, { dataInicial, dataFinal }) {
+  if (value instanceof Date && !Number.isFinite(value.getTime())) return false
+  const day = (value instanceof Date ? value.toISOString() : String(value ?? '')).slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) &&
+    (!dataInicial || day >= dataInicial) && (!dataFinal || day <= dataFinal)
+}
+
 export function withinPeriod (dataEmissao, startDate, endDate) {
   if (!dataEmissao) return false
   const emitida = new Date(dataEmissao)
@@ -290,49 +324,33 @@ function extractSerieNumeroFromLoteEnvio (fileName) {
 
 // Faixa de numeração inutilizada: número que nunca existiu porque foi
 // formalmente baixado junto à SEFAZ, não porque a venda se perdeu. O
-// "retorno" tem o protocolo (nProt) que comprova a baixa; o "envio" é só o
-// pedido, sem protocolo — por isso só o retorno é reconhecido aqui.
-const INUTILIZACAO_RE = /inutilizacao_serie[_-](\d+)_faixa[_-](\d+)[_-](\d+).*retorno/i
+// Nas pastas, o pedido assinado tem prioridade sobre o retorno.
+const INUTILIZACAO_RE = /inutilizacao_serie[_-](\d+)_faixa[_-](\d+)[_-](\d+).*[_-](envio|retorno)\.xml$/i
 
 function extractInutilizacaoFromFileName (fileName) {
   const match = fileName.match(INUTILIZACAO_RE)
   if (!match) return null
-  return { serie: Number(match[1]), nNFIni: Number(match[2]), nNFFin: Number(match[3]) }
+  return { serie: Number(match[1]), nNFIni: Number(match[2]), nNFFin: Number(match[3]), kind: match[4].toLowerCase() }
 }
 
-export async function listXmlFilesRecursive (dir) {
+export async function listXmlFilesRecursive (dir, onInaccessible) {
   const found = []
   let entries
   try {
     entries = await fs.readdir(dir, { withFileTypes: true })
   } catch {
+    onInaccessible?.(dir)
     return found
   }
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      found.push(...(await listXmlFilesRecursive(fullPath)))
+      found.push(...(await listXmlFilesRecursive(fullPath, onInaccessible)))
     } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.xml')) {
       found.push(fullPath)
     }
   }
   return found
-}
-
-// `listXmlFilesRecursive` ignora pasta que não abre (devolve lista vazia),
-// então quem precisa avisar o usuário pergunta aqui quais das pastas
-// configuradas estão inacessíveis (não existe, rede fora, sem permissão).
-export async function findInaccessibleFolders (folders) {
-  const inaccessible = []
-  for (const folder of folders ?? []) {
-    try {
-      const stat = await fs.stat(folder)
-      if (!stat.isDirectory()) inaccessible.push(folder)
-    } catch {
-      inaccessible.push(folder)
-    }
-  }
-  return inaccessible
 }
 
 async function loadFolderEntry (match) {
@@ -352,7 +370,7 @@ async function loadFolderEntry (match) {
 // conteúdo é lido nesta fase, então o custo é o mesmo listar 100 ou 100 mil
 // arquivos. O conteúdo só é lido, sob demanda, para os poucos arquivos que
 // realmente batem com alguma nota que precisa ser recuperada.
-export async function buildFolderIndex (folders, { onProgress, isCancelled } = {}) {
+export async function buildFolderIndex (folders, { onProgress, isCancelled, onInaccessible } = {}) {
   const byChave = new Map()
   const byNumSerieCnpj = new Map()
   const byNumSerie = new Map()
@@ -364,13 +382,14 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
   // primeiro ou DEPOIS do último número que o banco devolveu (ver
   // extendGroupsFromFolders), coisa que byNumSerie sozinho não responde.
   const bySerie = new Map()
+  const inutilizacoes = new Map()
 
   onProgress?.({ phase: 'listing', message: 'Listando arquivos nas pastas configuradas...' })
 
   const allFiles = []
   for (const folder of folders ?? []) {
     if (isCancelled?.()) throw new ValidationCancelledError()
-    const files = await listXmlFilesRecursive(folder)
+    const files = await listXmlFilesRecursive(folder, onInaccessible)
     for (const filePath of files) allFiles.push({ filePath, folder })
   }
 
@@ -428,22 +447,60 @@ export async function buildFolderIndex (folders, { onProgress, isCancelled } = {
     if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder, via: 'lote-envio' })
   }
 
-  // Terceira passada, última prioridade: número sem nota nenhuma (nem real,
-  // nem lote de envio) porque a faixa foi inutilizada junto à SEFAZ. Uma
-  // faixa cobre vários números (nNFIni..nNFFin), então expande cada um.
   for (const { filePath, folder } of allFiles) {
     if (isCancelled?.()) throw new ValidationCancelledError()
-
     const faixa = extractInutilizacaoFromFileName(path.basename(filePath))
     if (!faixa) continue
-
-    for (let numero = faixa.nNFIni; numero <= faixa.nNFFin; numero++) {
-      const numSerieKey = `${faixa.serie}|${numero}`
-      if (!byNumSerie.has(numSerieKey)) byNumSerie.set(numSerieKey, { filePath, folder, via: 'inutilizacao' })
-    }
+    if (!inutilizacoes.has(faixa.serie)) inutilizacoes.set(faixa.serie, { envio: [], retorno: [] })
+    inutilizacoes.get(faixa.serie)[faixa.kind].push({ ...faixa, filePath, folder, via: 'inutilizacao' })
   }
 
-  return { byChave, byNumSerieCnpj, byNumSerie, byPrefixoNumSerie, bySerie, totalFound: allFiles.length }
+  return { byChave, byNumSerieCnpj, byNumSerie, byPrefixoNumSerie, bySerie, inutilizacoes, allFiles, totalFound: allFiles.length }
+}
+
+async function findCancelledRecoveredKeys (items, files, isCancelled) {
+  const recovered = new Set(items.filter((item) => item.metodoRecuperacao &&
+    !item.nfeAvulsa && /^\d{44}$/.test(item.chave ?? '')).map((item) => item.chave))
+  const cancelled = new Set()
+  if (!recovered.size) return cancelled
+
+  for (const { filePath } of files) {
+    if (isCancelled?.()) throw new ValidationCancelledError()
+    const name = path.basename(filePath)
+    if (!recovered.has(extractChaveFromFileName(name)) &&
+        !/11011[12]|evento|cancel|(?:^|[-_])can\.xml$/i.test(name)) continue
+    try {
+      const xml = await fs.readFile(filePath, 'utf8')
+      if (!/retEvento/.test(xml) || XMLValidator.validate(xml) !== true) continue
+      for (const key of collectCancelledKeys(parser.parse(xml))) {
+        if (recovered.has(key)) cancelled.add(key)
+      }
+    } catch {
+      // Um evento ilegível não confirma o cancelamento.
+    }
+  }
+  return cancelled
+}
+
+async function findFolderInutilizacao (folderIndex, serie, numero, cnpj, bankReturn) {
+  const files = folderIndex.inutilizacoes.get(serie)
+  if (!files || !Number.isFinite(numero)) return null
+  const candidates = bankReturn ? files.envio : [...files.envio, ...files.retorno]
+  for (const match of candidates) {
+    if (numero < match.nNFIni || numero > match.nNFFin) continue
+    const found = await loadFolderEntry(match)
+    const parsed = found?.parsed
+    if (parsed?.wellFormed && parsed.tipo === 'inutilizacao' && parsed.serie === serie &&
+        numero >= parsed.inutilizacao.nNFIni && numero <= parsed.inutilizacao.nNFFin &&
+        (!cnpj || !parsed.cnpj || parsed.cnpj === cnpj) &&
+        (match.kind !== 'envio' || parsed.pedidoAssinado) &&
+        (!bankReturn || (
+          parsed.modelo === bankReturn.modelo &&
+          parsed.inutilizacao.nNFIni === bankReturn.inutilizacao.nNFIni &&
+          parsed.inutilizacao.nNFFin === bankReturn.inutilizacao.nNFFin
+        ))) return found
+  }
+  return null
 }
 
 // Inícios de chave (UF + AAMM + CNPJ) que uma nota da série pode ter no
@@ -569,7 +626,7 @@ const METODO_RECUPERACAO = {
   'chave-no-nome': 'Chave de acesso no nome do arquivo',
   'lote-envio': 'Lote de envio à SEFAZ (nota nunca chegou a ser gravada no banco)',
   'fora-do-intervalo': 'Fora do intervalo do banco (emissão no período, banco sem registro)',
-  inutilizacao: 'Faixa inutilizada junto à SEFAZ (sem nota correspondente)'
+  inutilizacao: 'XML de inutilização localizado na pasta de apoio'
 }
 
 function buildRecoveredItem (base, found) {
@@ -579,6 +636,7 @@ function buildRecoveredItem (base, found) {
     numero: parsed.numero ?? base.numero ?? null,
     serie: parsed.serie ?? base.serie ?? null,
     chave: parsed.chave ?? base.chave ?? null,
+    ...(isInutilizacao ? { chaveOriginal: base.chaveOriginal ?? base.chave ?? null } : {}),
     // Lacuna de numeração não tem linha de banco (base é só {numero,serie,cnpj}),
     // então esses campos vêm do próprio XML recuperado; nota com XML
     // corrompido/ausente já tinha essas colunas no banco — nesse caso elas
@@ -586,14 +644,7 @@ function buildRecoveredItem (base, found) {
     dataEmissao: base.dataEmissao ?? parsed.dataEmissao ?? null,
     valor: base.valor ?? parsed.valor ?? null,
     tpEmissao: base.tpEmissao ?? (isInutilizacao ? 'INUTILIZAÇÃO' : (parsed.contingencia ? 'CONTINGÊNCIA' : 'NORMAL')),
-    // O "lote de envio" recuperado é o próprio pedido mandado à SEFAZ — não
-    // carrega protocolo (isso fica só no "ret-lot", que não tem a nota em
-    // si). Sem informação de cancelamento no XML, a venda é tratada como
-    // válida/autorizada, que é a situação real da imensa maioria dos casos
-    // em que a nota só está ausente do banco por falha de gravação local.
-    // Faixa inutilizada é um caso à parte: não é venda nenhuma, é a própria
-    // baixa formal do número junto à SEFAZ.
-    status: base.status ?? (isInutilizacao ? 'INUTILIZADA' : 'AUTORIZADA'),
+    status: base.status || (isInutilizacao ? 'INUTILIZADA' : parsed.temProtocolo ? 'AUTORIZADA' : null),
     xmlStatus: 'DISPONÍVEL',
     xmlContent: Buffer.from(found.xmlString, 'utf-8').toString('base64'),
     origem: path.basename(found.folder),
@@ -645,7 +696,7 @@ async function extendGroupsFromFolders (groups, folderIndex, { period, companyCn
       if (entry.serie !== serie || !aceitaCnpj(entry.cnpj) || !aceitaModelo(entry.modelo)) continue
       for (const [numero, info] of entry.numeros) {
         if (candidatos.has(numero) || !aceitaNumero(numero)) continue
-        if (!months.has(`${info.ano}|${info.mes}`)) continue
+        if (period.collectionDate !== 'authorization' && !months.has(`${info.ano}|${info.mes}`)) continue
         candidatos.set(numero, info)
       }
     }
@@ -660,7 +711,11 @@ async function extendGroupsFromFolders (groups, folderIndex, { period, companyCn
       const parsed = found?.parsed
       if (!parsed?.wellFormed || parsed.tipo !== 'nfe') continue
       if (parsed.serie !== serie || parsed.numero !== numero) continue
-      if (!withinPeriod(parsed.dataEmissao, startDate, endDate)) continue
+      if (period.collectionDate === 'authorization'
+        ? !withinCollectionPeriod(parsed.dataAutorizacao ?? parsed.dataEmissao, period)
+        : period?.collectionDate === 'authorization'
+      ? !withinCollectionPeriod(parsed.dataAutorizacao ?? parsed.dataEmissao, period)
+      : !withinPeriod(parsed.dataEmissao, startDate, endDate)) continue
       confirmados.push(buildRecoveredItem({ numero, serie, cnpj: parsed.cnpj }, found))
     }
     return confirmados
@@ -794,8 +849,10 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
 
   // Passo 4 — busca em cascata
   reportStep(4, 'Busca em cascata de XMLs faltantes')
+  const inaccessibleFolders = new Set()
   const folderIndex = await buildFolderIndex(folders, {
     isCancelled,
+    onInaccessible: (folder) => inaccessibleFolders.add(folder),
     onProgress: (info) => onProgress?.({ step: 4, totalSteps: TOTAL_STEPS, label: 'Busca em cascata de XMLs faltantes', ...info })
   })
 
@@ -805,11 +862,37 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
   for (const row of rowsAnnotated) {
     if (isCancelled?.()) throw new ValidationCancelledError()
 
+    if (row._parsed.tipo === 'inutilizacao' && row._parsed.wellFormed) {
+      const parsed = row._parsed
+      if (!parsed.pedidoAssinado) {
+        const found = await findFolderInutilizacao(folderIndex, parsed.serie, parsed.numero, parsed.cnpj, parsed)
+        if (found) {
+          workingSet.push(buildRecoveredItem(row, found))
+          continue
+        }
+      }
+      workingSet.push({
+        ...row,
+        chave: row._parsed.chave ?? row.chave,
+        chaveOriginal: row.chaveOriginal ?? row.chave,
+        status: row.status || 'INUTILIZADA'
+      })
+      continue
+    }
+    if (String(row.status ?? '').toLowerCase().includes('inutilizad')) {
+      const found = await findFolderInutilizacao(folderIndex, row.serie, row.numero, row._parsed.cnpj)
+      if (found) {
+        workingSet.push(buildRecoveredItem(row, found))
+        continue
+      }
+    }
+
     const precisaRecuperar = !row.xmlContent || !row._parsed.wellFormed || !row._parsed.temProtocolo
     if (precisaRecuperar && row.chave) {
       const match = folderIndex.byChave.get(row.chave)
       const found = await loadFolderEntry(match)
-      if (found?.parsed.wellFormed) {
+      if (found?.parsed.wellFormed && (period?.collectionDate !== 'authorization' ||
+          withinCollectionPeriod(found.parsed.dataAutorizacao ?? found.parsed.dataEmissao ?? row.dataEmissao, period))) {
         workingSet.push(buildRecoveredItem(row, found))
         recuperadosPorChave++
         continue
@@ -821,6 +904,14 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
   onProgress?.({ step: 4, totalSteps: TOTAL_STEPS, label: 'Busca em cascata de XMLs faltantes', phase: 'extending' })
   const foraDoIntervalo = await extendGroupsFromFolders(groups, folderIndex, { period, companyCnpj, isCancelled })
   const seriesSoNaPasta = groups.filter((g) => g.numerosBanco.size === 0).length
+
+  const knownRanges = new Map()
+  for (const row of workingSet) {
+    if (row._parsed.tipo !== 'inutilizacao' || !row._parsed.wellFormed) continue
+    const serie = row._parsed.serie
+    if (!knownRanges.has(serie)) knownRanges.set(serie, [])
+    knownRanges.get(serie).push(row._parsed)
+  }
 
   const recoveredGaps = []
   const naoRecuperados = []
@@ -834,10 +925,12 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
   // período pode ser feita depois do fim dele e continua explicando a lacuna.
   const months = monthsInRange(period?.dataInicial, period?.dataFinal)
   const { startDate, endDate } = periodBounds(period?.dataInicial, period?.dataFinal)
-  const anteriorAoPeriodo = (parsed) => !!startDate && new Date(parsed.dataEmissao) < startDate
+  const anteriorAoPeriodo = (parsed) => !!startDate && !!parsed.dataEmissao && new Date(parsed.dataEmissao) < startDate
   const foraDoPeriodo = (parsed) => (parsed.tipo === 'inutilizacao'
     ? anteriorAoPeriodo(parsed)
-    : !withinPeriod(parsed.dataEmissao, startDate, endDate))
+    : period?.collectionDate === 'authorization'
+      ? !withinCollectionPeriod(parsed.dataAutorizacao ?? parsed.dataEmissao, period)
+      : !withinPeriod(parsed.dataEmissao, startDate, endDate))
 
   for (const group of groups) {
     const prefixos = prefixosDoPeriodo(group, months)
@@ -847,9 +940,14 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
 
     for (const numero of group.lacunas) {
       if (isCancelled?.()) throw new ValidationCancelledError()
+      const ranges = knownRanges.get(group.serie)
+      if (ranges?.some((range) => (!group.cnpj || !range.cnpj || range.cnpj === group.cnpj) &&
+          numero >= range.inutilizacao.nNFIni && numero <= range.inutilizacao.nNFFin)) continue
 
       const match = lookupByNumeroSerie(folderIndex, prefixos, group.cnpj, group.serie, numero)
-      const found = await loadFolderEntry(match)
+      const document = await loadFolderEntry(match)
+      const found = document?.parsed.wellFormed ? document :
+        await findFolderInutilizacao(folderIndex, group.serie, numero, group.cnpj)
       // A busca sem CNPJ pode devolver o mesmo número de outra empresa.
       const outraEmpresa = !!group.cnpj && !!found?.parsed.cnpj && found.parsed.cnpj !== group.cnpj
       if (!found?.parsed.wellFormed || outraEmpresa) {
@@ -888,7 +986,7 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
         (seriesSoNaPasta > 0 ? ` (inclui ${seriesSoNaPasta} série(s) sem nenhuma nota no banco)` : '')
       : null,
     recuperadosPorLote > 0 ? `${recuperadosPorLote} via lote de envio à SEFAZ (nem chegaram a ser gravadas no banco)` : null,
-    recuperadosPorInutilizacao > 0 ? `${recuperadosPorInutilizacao} eram faixa inutilizada (sem nota — número baixado junto à SEFAZ)` : null,
+    recuperadosPorInutilizacao > 0 ? `${recuperadosPorInutilizacao} tinham XML de inutilização (pedido ou retorno)` : null,
     lacunasDeOutroPeriodo > 0 ? `${lacunasDeOutroPeriodo} número(s) da faixa são de outro período e ficaram de fora` : null
   ].filter(Boolean).join('; ')
 
@@ -927,12 +1025,13 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
   // nenhum pra exportar) é isolado como inconformidade de verdade.
   const invalid = []
   const finalItems = []
+  const cancelledKeys = await findCancelledRecoveredKeys(kept, folderIndex.allFiles, isCancelled)
   for (const item of kept) {
     const parsed = item._parsed ?? extractFromBase64(item.xmlContent)
     if (!parsed?.wellFormed) {
       invalid.push({ ...item, motivo: 'XML corrompido ou ausente' })
     } else {
-      finalItems.push(item)
+      finalItems.push(cancelledKeys.has(item.chave) ? { ...item, status: 'CANCELADA' } : item)
     }
   }
 
@@ -973,6 +1072,7 @@ export async function runValidation ({ rows, folders, period, companyCnpj, onPro
   return {
     steps,
     grupos,
+    inaccessibleFolders: [...inaccessibleFolders],
     recovered: [
       ...foraDoIntervalo,
       ...recoveredGaps,

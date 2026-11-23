@@ -19,6 +19,8 @@ export const useQueryStore = defineStore('query', () => {
   // Fontes (conexões) que falharam na última consulta e ficaram de fora: a
   // validação repassa pro email de problemas.
   const sourceErrors = ref([])
+  const inaccessibleFolders = ref([])
+  const collectionDate = ref('emission')
   const groupFilter = ref(null)
   // O .zip só pode ser baixado depois de rodar "Validar / Auditar" sobre o
   // resultado da consulta atual; uma nova consulta exige validar de novo.
@@ -57,12 +59,13 @@ export const useQueryStore = defineStore('query', () => {
     dataFinal.value = date.formatDate(date.endOfDate(shifted, 'month'), 'YYYY-MM-DD')
   }
 
-  async function run () {
+  async function run (automatic = false) {
     const token = ++requestToken
 
     querying.value = true
     lastError.value = ''
     sourceErrors.value = []
+    inaccessibleFolders.value = []
     groupFilter.value = null
     validated.value = false
     uploaded.value = null
@@ -76,7 +79,8 @@ export const useQueryStore = defineStore('query', () => {
     try {
       const result = await window.api.query.run({
         dataInicial: dataInicial.value,
-        dataFinal: dataFinal.value
+        dataFinal: dataFinal.value,
+        automatic
       })
       if (token !== requestToken) return [] // resposta de uma consulta já superada
 
@@ -86,6 +90,7 @@ export const useQueryStore = defineStore('query', () => {
       // todas as notas vêm pré-selecionadas por padrão
       selected.value = [...result.rows]
       sourceErrors.value = result.errors ?? []
+      collectionDate.value = result.collectionDate ?? 'emission'
       return sourceErrors.value
     } catch (err) {
       if (token !== requestToken) return []
@@ -111,6 +116,8 @@ export const useQueryStore = defineStore('query', () => {
     querying,
     lastError,
     sourceErrors,
+    inaccessibleFolders,
+    collectionDate,
     groupFilter,
     validating,
     validated,

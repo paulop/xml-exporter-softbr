@@ -11,10 +11,11 @@ SELECT
     CASE WHEN c.XmlContent64 IS NULL THEN 'AUSENTE' ELSE 'DISPONÍVEL' END AS xmlStatus,
     c.XmlContent64                AS xmlContent
 FROM nfce_notaeletronica n
-INNER JOIN nfce_notaeletronica_content c
+LEFT JOIN nfce_notaeletronica_content c
     ON n.numeronota = c.numeronota AND n.serie = c.serie
 WHERE n.dataemissao >= @dataInicial
   AND n.dataemissao <  DATEADD(day, 1, @dataFinal)
+  AND (c.numeronota IS NOT NULL OR LOWER(CONVERT(nvarchar(100), n.Situacao)) LIKE '%inutilizad%')
 ORDER BY n.dataemissao DESC, n.serie ASC, n.numeronota DESC;`
 
 const REQUIRED_PLACEHOLDERS = ['@dataInicial', '@dataFinal']

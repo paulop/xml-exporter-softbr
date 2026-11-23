@@ -8,7 +8,8 @@ import {
   decodeChave,
   monthsInRange,
   periodBounds,
-  withinPeriod
+  withinPeriod,
+  withinCollectionPeriod
 } from './notaValidation.js'
 
 // Pastas de NF-e avulsas (ex.: notas de outro sistema/filial que nunca
@@ -23,7 +24,8 @@ export const NFE_AVULSA_CONEXAO = 'Pasta de NF-e avulsa'
 // Varre as pastas configuradas e devolve, já no formato usado pelo ZIP/log,
 // só os XMLs cuja emissão cai dentro do período — sem passar pela busca em
 // cascata nem tentar casar com nenhuma linha do banco.
-export async function collectNfeFromFolders (folders, { dataInicial, dataFinal } = {}) {
+export async function collectNfeFromFolders (folders, period = {}, onInaccessible) {
+  const { dataInicial, dataFinal, collectionDate } = period
   if (!folders || folders.length === 0) return []
 
   const months = monthsInRange(dataInicial, dataFinal)
@@ -32,14 +34,14 @@ export async function collectNfeFromFolders (folders, { dataInicial, dataFinal }
   const results = []
 
   for (const folder of folders) {
-    const files = await listXmlFilesRecursive(folder)
+    const files = await listXmlFilesRecursive(folder, onInaccessible)
 
     for (const filePath of files) {
       const chave = extractChaveFromFileName(path.basename(filePath))
       // Pré-filtro por mês direto do nome (sem abrir o arquivo): só pula
       // quando dá pra confirmar que o mês está fora do período — chave
       // ausente do nome não permite descartar, então nesse caso abre mesmo.
-      if (chave && months.size > 0) {
+      if (collectionDate !== 'authorization' && chave && months.size > 0) {
         const { ano, mes } = decodeAnoMesFromChave(chave)
         if (!months.has(`${ano}|${mes}`)) continue
       }
@@ -53,7 +55,9 @@ export async function collectNfeFromFolders (folders, { dataInicial, dataFinal }
 
       const parsed = parseXml(xmlString)
       if (!parsed.wellFormed || parsed.tipo !== 'nfe') continue
-      if (!withinPeriod(parsed.dataEmissao, startDate, endDate)) continue
+      if (collectionDate === 'authorization'
+        ? !withinCollectionPeriod(parsed.dataAutorizacao ?? parsed.dataEmissao, period)
+        : !withinPeriod(parsed.dataEmissao, startDate, endDate)) continue
 
       results.push({
         numero: parsed.numero,
@@ -62,6 +66,7 @@ export async function collectNfeFromFolders (folders, { dataInicial, dataFinal }
         dataEmissao: parsed.dataEmissao,
         valor: parsed.valor,
         tpEmissao: parsed.contingencia ? 'CONTINGÊNCIA' : 'NORMAL',
+        // A coleta de NF-e avulsas mantém o status adotado na 1.7.2.
         status: 'AUTORIZADA',
         xmlStatus: 'DISPONÍVEL',
         xmlContent: Buffer.from(xmlString, 'utf-8').toString('base64'),
@@ -88,29 +93,29 @@ export async function collectNfeFromFolders (folders, { dataInicial, dataFinal }
 // consulta principal), não é mais uma ação separada. A chave só guarda
 // ano/mês (AAMM), não o dia — por isso o filtro aqui é por mês (todo mês
 // que o período tocar), não por intervalo exato de datas.
-export async function validateNfeFolderSequence (folders, { dataInicial, dataFinal } = {}) {
+export async function validateNfeFolderSequence (folders, { dataInicial, dataFinal, collectionDate } = {}, collectedRows = []) {
   if (!folders || folders.length === 0) return []
 
   const months = monthsInRange(dataInicial, dataFinal)
   const groups = new Map()
 
-  for (const folder of folders) {
-    const files = await listXmlFilesRecursive(folder)
+  const keys = collectionDate === 'authorization'
+    ? collectedRows.map((row) => row.chave)
+    : (await Promise.all(folders.map((folder) => listXmlFilesRecursive(folder))))
+      .flat().map((filePath) => extractChaveFromFileName(path.basename(filePath)))
 
-    for (const filePath of files) {
-      const chave = extractChaveFromFileName(path.basename(filePath))
-      if (!chave) continue
+  for (const chave of keys) {
+    if (!chave || !/^\d{44}$/.test(chave)) continue
 
-      if (months.size > 0) {
-        const { ano, mes } = decodeAnoMesFromChave(chave)
-        if (!months.has(`${ano}|${mes}`)) continue
-      }
-
-      const { cnpj, serie, numero } = decodeChave(chave)
-      const key = `${cnpj}|${serie}`
-      if (!groups.has(key)) groups.set(key, { cnpj, serie, numeros: new Set() })
-      groups.get(key).numeros.add(numero)
+    if (collectionDate !== 'authorization' && months.size > 0) {
+      const { ano, mes } = decodeAnoMesFromChave(chave)
+      if (!months.has(`${ano}|${mes}`)) continue
     }
+
+    const { cnpj, serie, numero } = decodeChave(chave)
+    const key = `${cnpj}|${serie}`
+    if (!groups.has(key)) groups.set(key, { cnpj, serie, numeros: new Set() })
+    groups.get(key).numeros.add(numero)
   }
 
   const rows = []

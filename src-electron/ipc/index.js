@@ -5,15 +5,34 @@ import * as exportIpc from './export.js'
 import * as settings from './settings.js'
 import * as updater from './updater.js'
 import * as validation from './validation.js'
-import { migrateLegacyConfigIfEmpty } from '../lib/store.js'
-import { AUTO_RUN_ARG } from '../lib/scheduledTask.js'
+import * as monthly from './monthly.js'
+import { migrateLegacyConfigIfEmpty, store } from '../lib/store.js'
+import { AUTO_RUN_ARG, MONTHLY_SCHEDULE_VERSION } from '../lib/scheduledTask.js'
 
 // Aberto pela tarefa agendada? Lido uma vez só pela tela de notas, pra a
 // execução automática não repetir ao navegar de volta pra ela.
-let pendingAutoRun = process.argv.includes(AUTO_RUN_ARG)
+let pendingAutoRun = null
 
-export function registerIpcHandlers (mainWindow) {
+export function registerIpcHandlers (mainWindow, invokedAt) {
+  pendingAutoRun = process.argv.includes(AUTO_RUN_ARG) ? invokedAt : null
   migrateLegacyConfigIfEmpty()
+  if (store.get('accountant')?.autoOpen && store.get('monthlyScheduleVersion') !== MONTHLY_SCHEDULE_VERSION) {
+    void settings.syncAutoOpenTask().then((result) => {
+      if (!result.ok) console.warn(result.message)
+    }).catch(console.error)
+  }
+
+  app.on('second-instance', (_event, argv, _directory, data) => {
+    if (!argv.includes(AUTO_RUN_ARG)) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+      return
+    }
+    const scheduledAt = data?.invokedAt ? new Date(data.invokedAt) : new Date()
+    if (!monthly.hasScheduledWork(scheduledAt)) return
+    pendingAutoRun = scheduledAt
+    mainWindow.webContents.send('app:autoRunRequested')
+  })
 
   ipcMain.handle('connections:list', () => connections.listConnections())
   ipcMain.handle('connections:save', (_e, payload) => connections.saveConnection(payload))
@@ -62,16 +81,17 @@ export function registerIpcHandlers (mainWindow) {
   ipcMain.handle('settings:openPortal', () => settings.openPortal())
 
   validation.init(mainWindow)
-  ipcMain.handle('validation:run', (_e, rows, period, sourceErrors) => validation.run(rows, period, sourceErrors))
+  ipcMain.handle('validation:run', (_e, rows, period, sourceErrors, automatic) => validation.run(rows, period, sourceErrors, automatic))
   ipcMain.handle('validation:cancel', () => validation.cancel())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('app:quit', () => app.quit())
   ipcMain.handle('app:consumeAutoRun', () => {
-    const auto = pendingAutoRun
-    pendingAutoRun = false
-    return auto
+    const scheduledAt = pendingAutoRun
+    pendingAutoRun = null
+    return monthly.begin(scheduledAt)
   })
+  ipcMain.handle('app:finishAutoRun', (_e, sourceErrors) => monthly.finish(sourceErrors))
   ipcMain.handle('app:checkForUpdates', () => updater.checkForUpdates())
   ipcMain.handle('app:installUpdate', () => updater.installUpdate())
 

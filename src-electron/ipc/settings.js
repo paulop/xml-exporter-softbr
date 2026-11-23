@@ -2,7 +2,8 @@ import { dialog, shell } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { store } from '../lib/store.js'
-import { syncScheduledTask } from '../lib/scheduledTask.js'
+import { monthlyWindow } from '../lib/monthlyWindow.js'
+import { MONTHLY_SCHEDULE_VERSION, syncScheduledTask } from '../lib/scheduledTask.js'
 
 const TOTVS_PORTAL_URL = 'https://tec.totvshospitalidade.com/auth/login'
 
@@ -125,6 +126,7 @@ export function setAccountant (payload) {
     email: String(payload?.email ?? ''),
     // Abrir sozinho na 1ª segunda-feira do mês (tarefa agendada do Windows)
     // e, nessa abertura, enviar sem esperar o usuário revisar a validação.
+    collectionDate: payload?.collectionDate === 'authorization' ? 'authorization' : 'emission',
     autoOpen: !!payload?.autoOpen,
     sendWithoutReview: !!payload?.sendWithoutReview
   })
@@ -132,8 +134,18 @@ export function setAccountant (payload) {
 }
 
 // Cria ou remove a tarefa agendada conforme o `autoOpen` salvo.
-export function syncAutoOpenTask () {
-  return syncScheduledTask(!!store.get('accountant')?.autoOpen)
+export async function syncAutoOpenTask () {
+  const enabled = !!store.get('accountant')?.autoOpen
+  if (enabled && !store.get('monthlyScheduleSince')) {
+    const now = new Date()
+    const current = monthlyWindow(now)
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    store.set('monthlyScheduleSince', now < current.deadline ? current.key : monthlyWindow(nextMonth).key)
+  }
+  if (!enabled) store.set('monthlyScheduleSince', null)
+  const result = await syncScheduledTask(enabled)
+  if (result.ok) store.set('monthlyScheduleVersion', MONTHLY_SCHEDULE_VERSION)
+  return result
 }
 
 export function getSearchFolders () {

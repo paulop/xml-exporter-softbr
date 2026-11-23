@@ -2,6 +2,15 @@ import Store from 'electron-store'
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { resolveElectronAssetsPath } from '#q-app/electron/main'
+
+const LEGACY_APP_NAMES = ['Gerador de Arquivos XML - SoftBR', 'XML Exporter SoftBR']
+const userDataDir = app.getPath('userData')
+const legacyConfigPaths = LEGACY_APP_NAMES.map((name) => path.join(path.dirname(userDataDir), name, 'config.json'))
+// Verifica antes de instanciar as stores, pois elas criam os JSONs.
+const temConfigAtual = fs.existsSync(path.join(userDataDir, 'config.json'))
+const instalacaoNova = app.isPackaged && !temConfigAtual &&
+  ![path.join(userDataDir, 'last-export.json'), ...legacyConfigPaths].some((file) => fs.existsSync(file))
 
 const schema = {
   connections: {
@@ -44,6 +53,8 @@ const schema = {
     type: 'object',
     default: { checkUpdatesOnStartup: true }
   },
+  monthlyScheduleVersion: { type: 'number', default: 0 },
+  monthlyScheduleSince: { type: ['string', 'null'], default: null },
   schemaVersion: {
     type: 'number',
     default: 1
@@ -52,12 +63,42 @@ const schema = {
 
 export const store = new Store({ name: 'config', schema })
 
+if (instalacaoNova) {
+  let logo = ''
+  try {
+    const png = fs.readFileSync(resolveElectronAssetsPath('logo-softbr.png'))
+    logo = `data:image/png;base64,${png.toString('base64')}`
+  } catch (err) {
+    console.warn('Não foi possível carregar a logo padrão da Software House:', err.message)
+  }
+  store.set('softwareHouse', {
+    cnpj: '06278621000118',
+    name: 'SOFTBR INFORMATICA',
+    whatsapp: '67996035700',
+    email: 'softbr@softbr.net',
+    logo
+  })
+} else if (!temConfigAtual) {
+  for (const file of legacyConfigPaths) {
+    let cadastro
+    try {
+      cadastro = JSON.parse(fs.readFileSync(file, 'utf-8')).softwareHouse
+    } catch {
+      continue
+    }
+    if (!cadastro || typeof cadastro !== 'object' || Array.isArray(cadastro)) continue
+    store.set('softwareHouse', { ...schema.softwareHouse.default, ...cadastro })
+    break
+  }
+}
+
 // Último envio bem-sucedido pra contabilidade, num arquivo à parte
 // (last-export.json, ao lado do config.json): sobrevive a limpar/resetar as
 // configurações e é fácil de ler de fora (suporte, script de verificação).
 export const lastExportStore = new Store({
   name: 'last-export',
   schema: {
+    monthlyClosings: { type: 'object', default: {} },
     lastSuccess: { type: ['object', 'null'], default: null },
     // Último relatório de problemas mandado por email (ver sendProblemsReport
     // em ipc/export.js), pra não repetir o mesmo email a cada validação.
@@ -78,8 +119,6 @@ export const lastExportStore = new Store({
 // de busca) numa instalação real. Se a store atual estiver vazia logo na
 // inicialização, tenta recuperar automaticamente de uma pasta antiga antes
 // de aceitar que é mesmo uma instalação nova.
-const LEGACY_APP_NAMES = ['Gerador de Arquivos XML - SoftBR', 'XML Exporter SoftBR']
-
 export function migrateLegacyConfigIfEmpty () {
   if (store.get('connections').length > 0) return
 

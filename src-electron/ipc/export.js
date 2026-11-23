@@ -113,7 +113,7 @@ export async function downloadZip (items, period, onProgress = () => {}) {
   if (!dir) return { ok: false, message: 'Nenhuma pasta de destino selecionada.' }
 
   onProgress('Gerando relatório .xlsx...')
-  const reportBuffer = await buildLogWorkbookBuffer(validItems)
+  const reportBuffer = await buildLogWorkbookBuffer(validItems, period?.collectionDate)
 
   // Estrutura do .zip: log/ com o relatório e xml/ com as notas.
   const entries = [

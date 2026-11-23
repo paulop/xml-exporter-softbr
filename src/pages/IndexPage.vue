@@ -18,15 +18,15 @@
 
       <div class="col-12 col-md-auto">
         <div class="row items-center no-wrap date-range-picker">
-          <q-btn flat dense round icon="chevron_left" @click="queryStore.shiftMonth(-1)">
+          <q-btn flat dense round icon="chevron_left" :disable="busy || autoRunning" @click="queryStore.shiftMonth(-1)">
             <q-tooltip>Mês anterior</q-tooltip>
           </q-btn>
-          <q-btn flat dense no-caps :label="rangeLabel" class="date-range-label">
+          <q-btn flat dense no-caps :label="rangeLabel" :disable="busy || autoRunning" class="date-range-label">
             <q-popup-proxy anchor="bottom left" self="top left" transition-show="scale" transition-hide="scale">
               <q-date v-model="dateRange" range mask="YYYY-MM-DD" today-btn minimal />
             </q-popup-proxy>
           </q-btn>
-          <q-btn flat dense round icon="chevron_right" @click="queryStore.shiftMonth(1)">
+          <q-btn flat dense round icon="chevron_right" :disable="busy || autoRunning" @click="queryStore.shiftMonth(1)">
             <q-tooltip>Próximo mês</q-tooltip>
           </q-btn>
         </div>
@@ -38,7 +38,7 @@
           label="Consultar"
           icon="search"
           :loading="queryStore.querying"
-          :disable="connectionsStore.connections.length === 0 || queryStore.querying"
+          :disable="connectionsStore.connections.length === 0 || busy || autoRunning"
           @click="runQuery()"
         />
       </div>
@@ -53,11 +53,15 @@
       </ul>
       <div>
         {{ autoSendSuspended ? 'O envio automático não foi feito.' : '' }}
-        Você pode enviar ou baixar manualmente as notas encontradas, mesmo sem as que faltaram.
+        Você pode baixar as notas encontradas para conferência.
       </div>
       <template #action>
         <q-btn flat dense label="Fechar" @click="autoRunProblems = []" />
       </template>
+    </q-banner>
+
+    <q-banner v-if="hasSourceFailures" rounded class="bg-orange-1 text-brown-10 q-mt-md">
+      O envio está bloqueado porque uma ou mais fontes estão inacessíveis. Corrija o acesso, consulte e audite novamente.
     </q-banner>
 
     <!-- Execução automática mensal concluída sem problemas: fecha sozinho em 120s (cancelável). -->
@@ -218,7 +222,7 @@
 
     <NotaDetailDialog v-model="detailOpen" :row="detailRow" />
 
-    <ValidationChecklist ref="validationRef" />
+    <ValidationChecklist ref="validationRef" :disabled="busy || autoRunning" />
 
     <SendDialog
       v-model="sendDialogOpen"
@@ -249,7 +253,7 @@
           :icon="queryStore.uploaded ? 'check' : 'send'"
           :label="queryStore.uploaded ? 'Reenviar' : 'Enviar'"
           :loading="sending"
-          :disable="busy || !queryStore.validated"
+          :disable="busy || !queryStore.validated || hasSourceFailures || autoRunning"
           @click="sendDialogOpen = true"
         />
         <q-tooltip v-if="!queryStore.validated">
@@ -304,7 +308,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useQuasar, date } from 'quasar'
 import { useConnectionsStore } from '@/stores/connections-store'
 import { useQueryStore } from '@/stores/query-store'
@@ -354,6 +358,11 @@ const lastSuccess = ref(null)
 // e se o envio automático deixou de ser feito por causa disso.
 const autoRunProblems = ref([])
 const autoSendSuspended = ref(false)
+const autoRunning = ref(false)
+const hasSourceFailures = computed(() => !!(queryStore.sourceErrors.length || queryStore.inaccessibleFolders.length))
+let autoRequested = false
+let stopAutoEvents
+let alertTimer
 // Execução automática sem problemas: mensagem de status e contagem regressiva
 // pra fechar o app sozinho (0 = sem contagem / cancelada).
 const AUTO_CLOSE_SECONDS = 120
@@ -380,7 +389,11 @@ function quitApp () {
   window.api.app.quit()
 }
 
-onBeforeUnmount(cancelAutoClose)
+onBeforeUnmount(() => {
+  cancelAutoClose()
+  stopAutoEvents?.()
+  clearInterval(alertTimer)
+})
 
 // O que o sistema está fazendo agora, exibido ao lado do loader embaixo
 // dos botões. Vazio = ocioso (aí aparece o resultado da última exportação).
@@ -536,7 +549,7 @@ function formatDate (value) {
 // chamou mostra no aviso fixo.
 async function runQuery ({ silent = false } = {}) {
   try {
-    const errors = (await queryStore.run()) ?? []
+    const errors = (await queryStore.run(silent)) ?? []
     if (errors.length && !silent) {
       $q.notify({
         type: 'warning',
@@ -576,7 +589,11 @@ async function downloadZip () {
   exportWarning.value = false
   const unsubscribe = window.api.export.onProgress((message) => { exportProgress.value = message })
   try {
-    const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
+    const period = {
+      dataInicial: queryStore.dataInicial,
+      dataFinal: queryStore.dataFinal,
+      collectionDate: queryStore.collectionDate
+    }
     const result = await window.api.export.downloadZip(toPlain(queryStore.selected), period)
     exportOk.value = result.ok
     if (!result.ok) {
@@ -601,6 +618,7 @@ function formatMb (bytes) {
 // Depois de enviado, o botão vira "Reenviar" e manda o mesmo .zip já gerado
 // (até validar ou consultar de novo). `emails` vem do diálogo de envio (email do contador, editável por envio).
 async function send (emails) {
+  if (busy.value || !queryStore.validated || hasSourceFailures.value) return
   sending.value = true
   exportProgress.value = ''
   uploadProgress.value = null
@@ -609,7 +627,11 @@ async function send (emails) {
   const unsubscribeProgress = window.api.export.onProgress((message) => { exportProgress.value = message })
   const unsubscribeUpload = window.api.export.onUploadProgress((progress) => { uploadProgress.value = progress })
   try {
-    const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
+    const period = {
+      dataInicial: queryStore.dataInicial,
+      dataFinal: queryStore.dataFinal,
+      collectionDate: queryStore.collectionDate
+    }
     const result = await window.api.export.sendZip(
       toPlain(queryStore.selected),
       period,
@@ -654,29 +676,32 @@ function describeGaps (gaps, max = 20) {
   return gaps.length > max ? `${text} (e mais ${gaps.length - max})` : text
 }
 
-async function runMonthlyAuto () {
+async function runMonthlyAuto (period, sourceErrors) {
   const accountant = await window.api.settings.getAccountant()
   autoRunProblems.value = []
   autoSendSuspended.value = !!accountant?.sendWithoutReview
 
   if (connectionsStore.connections.length === 0) {
-    autoRunProblems.value.push('Nenhuma conexão configurada.')
+    sourceErrors.push('Nenhuma conexão configurada.')
+    autoRunProblems.value.push(...sourceErrors)
     return
   }
 
-  queryStore.dataInicial = date.formatDate(date.startOfDate(new Date(), 'month'), 'YYYY-MM-DD')
-  queryStore.shiftMonth(-1)
-  autoRunProblems.value.push(...await runQuery({ silent: true }))
+  queryStore.dataInicial = period.dataInicial
+  queryStore.dataFinal = period.dataFinal
+  sourceErrors.push(...await runQuery({ silent: true }))
+  autoRunProblems.value.push(...sourceErrors)
   if (queryStore.lastError) return
 
-  const result = await validationRef.value.run()
+  const result = await validationRef.value.run(true)
   if (!result) {
     autoRunProblems.value.push('A validação não foi concluída.')
     return
   }
   for (const folder of result.inaccessibleFolders ?? []) {
-    autoRunProblems.value.push(`Pasta de busca "${folder}": pasta não encontrada ou sem acesso`)
+    sourceErrors.push(`Pasta de busca "${folder}": pasta não encontrada ou sem acesso`)
   }
+  autoRunProblems.value = [...sourceErrors]
   if (result.naoRecuperados?.length) {
     autoRunProblems.value.push(
       `${result.naoRecuperados.length} nota(s) faltando na sequência não foram encontradas nas pastas: ` +
@@ -725,10 +750,53 @@ async function runMonthlyAuto () {
   })
 }
 
+function showClosingAlert (alert) {
+  if (!alert) return
+  if (alert.sent) {
+    autoRunProblems.value.push('Relatório final enviado à Software House.')
+  } else if (alert.message && !alert.skipped && !autoRunProblems.value.includes(alert.message)) {
+    autoRunProblems.value.push(alert.message)
+  }
+}
+
+async function checkMonthlyAuto () {
+  if (autoRunning.value || busy.value) {
+    autoRequested = true
+    return
+  }
+  autoRequested = false
+  autoRunning.value = true
+  try {
+    const result = await window.api.app.consumeAutoRun()
+    showClosingAlert(result?.alert)
+    if (!result?.period) return
+    const errors = []
+    try {
+      await runMonthlyAuto(result.period, errors)
+    } catch (err) {
+      errors.push(err.message ?? String(err))
+      throw err
+    } finally {
+      showClosingAlert(await window.api.app.finishAutoRun(errors))
+    }
+  } catch (err) {
+    autoRunProblems.value.push(err.message ?? String(err))
+  } finally {
+    autoRunning.value = false
+    if (autoRequested && !busy.value) void checkMonthlyAuto()
+  }
+}
+
+watch(busy, (value) => {
+  if (!value && autoRequested && !autoRunning.value) void checkMonthlyAuto()
+})
+
 onMounted(async () => {
   lastSuccess.value = await window.api.export.getLastSuccess()
   await connectionsStore.load()
-  if (await window.api.app.consumeAutoRun()) await runMonthlyAuto()
+  stopAutoEvents = window.api.app.onAutoRunRequested(checkMonthlyAuto)
+  alertTimer = setInterval(checkMonthlyAuto, 15 * 60_000)
+  await checkMonthlyAuto()
 })
 </script>
 

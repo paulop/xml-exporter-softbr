@@ -117,6 +117,62 @@ function statusKind (status) {
   return null
 }
 
+const EMISSAO_CONTINGENCIA = /CONTING[ÊE]NCIA|OFFLINE/
+
+function entraNoTotal (linha, kind) {
+  if (linha.tipoDocumento === 'INUTILIZAÇÃO') return false
+  return kind === 'autorizado' || linha.status === 'CONTINGÊNCIA' ||
+    (!linha.status && EMISSAO_CONTINGENCIA.test(linha.tipoEmissao))
+}
+
+function calcularTotais (linhas) {
+  const totais = {
+    autorizados: 0,
+    cancelados: 0,
+    autorizado: 0,
+    contingenciaSemProtocolo: 0,
+    outrosSemComprovacao: 0,
+    cancelado: 0,
+    operacional: 0,
+    desonerado: 0,
+    geral: 0
+  }
+  for (const linha of linhas) {
+    const kind = statusKind(linha.status)
+    const valor = Number(linha.valorTotal) || 0
+    totais.geral += valor
+    if (kind === 'autorizado') totais.autorizados++
+    if (kind === 'cancelado') {
+      totais.cancelados++
+      totais.cancelado += valor
+    }
+    if (!entraNoTotal(linha, kind)) continue
+
+    totais.operacional += valor
+    totais.desonerado += Number(linha.icmsDesonerado) || 0
+    if (linha.protocolo && ['100', '150'].includes(linha.cStat)) {
+      totais.autorizado += valor
+    } else if (!linha.protocolo && EMISSAO_CONTINGENCIA.test(linha.tipoEmissao)) {
+      totais.contingenciaSemProtocolo += valor
+    } else {
+      totais.outrosSemComprovacao += valor
+    }
+  }
+  return totais
+}
+
+function metricasDeValores (totais) {
+  return [
+    ['Valor autorizado com comprovação no XML', totais.autorizado, true],
+    ['Valor em contingência sem protocolo', totais.contingenciaSemProtocolo, true],
+    ['Outros valores sem autorização comprovada no XML', totais.outrosSemComprovacao, true],
+    ['Valor total cancelado', totais.cancelado, true],
+    ['Total operacional do lote', totais.operacional, true],
+    ['ICMS desonerado do total operacional', totais.desonerado, true],
+    ['Valor final operacional (após desoneração)', totais.operacional - totais.desonerado, true]
+  ]
+}
+
 // Monta a linha "achatada" que alimenta a aba XMLs, combinando os campos já
 // conhecidos do item (banco/pipeline de validação, mais confiáveis) com o
 // que só existe dentro do XML (razão social, destinatário, valores
@@ -128,21 +184,46 @@ function buildLinha (item) {
 
   const cnpjEmitente = parsedXml?.cnpjEmitente ?? ''
   const chave = item.chave ?? parsedXml?.chave ?? ''
+  const chaveRelatorio = parsedXml?.tipo === 'inutilizacao'
+    ? (item.chaveOriginal || (parsedXml.idOriginal ? `INUT${parsedXml.idOriginal}` : ''))
+    : chave
   const dataEmissao = item.dataEmissao ?? parsedXml?.dataEmissao ?? null
   const grupo = tipoDocumentoGrupo(parsedXml)
+  const tipoDocumento = tipoDocumentoDisplay(item, parsedXml, grupo)
+  const tipoEmissao = toUpperOrEmpty(item.tpEmissao)
+  const statusOriginal = toUpperOrEmpty(item.status)
+  const protocolo = parsedXml?.protocolo ?? ''
+  const notaRecuperada = !!item.metodoRecuperacao && !item.nfeAvulsa &&
+    (tipoDocumento === 'NF-e' || tipoDocumento === 'NFC-e')
+  let status = statusOriginal
+  if (parsedXml?.cancelamentoVinculado) {
+    status = 'CANCELADA'
+  } else if (tipoDocumento === 'INUTILIZAÇÃO' && !statusOriginal) {
+    status = 'INUTILIZADA'
+  } else if (!statusOriginal || statusKind(statusOriginal) === 'autorizado') {
+    if (tipoDocumento !== 'INUTILIZAÇÃO' && tipoEmissao === 'OFFLINE' && protocolo) {
+      status = 'AUTORIZADA'
+    } else if ((tipoDocumento === 'NFC-e' || notaRecuperada) && EMISSAO_CONTINGENCIA.test(tipoEmissao)) {
+      status = 'CONTINGÊNCIA'
+    } else if (!statusOriginal && notaRecuperada) {
+      status = 'AUTORIZADA'
+    }
+  }
 
   return {
     cnpjEmitente,
     razaoSocialEmitente: parsedXml?.razaoSocialEmitente ?? '',
-    tipoDocumento: tipoDocumentoDisplay(item, parsedXml, grupo),
+    tipoDocumento,
     tipoGrupo: grupo,
     modelo: parsedXml?.modelo ?? '',
     numero: toNumberOrNull(item.numero) ?? parsedXml?.numero ?? null,
+    numeroFinal: parsedXml?.numeroFinal ?? null,
     serie: toNumberOrNull(item.serie) ?? parsedXml?.serie ?? null,
     dataEmissaoRaw: dataEmissao,
-    chave,
-    protocolo: parsedXml?.protocolo ?? '',
-    status: toUpperOrEmpty(item.status),
+    dataAutorizacaoRaw: parsedXml?.dataAutorizacao ?? null,
+    chave: chaveRelatorio,
+    protocolo,
+    status,
     cStat: parsedXml?.cStat ?? '',
     motivo: parsedXml?.xMotivo ?? '',
     cpfCnpjDestinatario: parsedXml?.cnpjDestinatario ?? '',
@@ -154,7 +235,7 @@ function buildLinha (item) {
     desconto: parsedXml?.desconto ?? null,
     icmsDesonerado: parsedXml?.icmsDesonerado ?? null,
     frete: parsedXml?.frete ?? null,
-    tipoEmissao: toUpperOrEmpty(item.tpEmissao),
+    tipoEmissao,
     ambiente: parsedXml?.ambiente === 2 ? 'Homologação' : (parsedXml?.ambiente === 1 ? 'Produção' : ''),
     // Conexão (caixa/computador) pra nota vinda do banco; pasta de apoio pra
     // nota de NF-e avulsa ou recuperada via busca em cascata — é o que
@@ -213,7 +294,9 @@ function buildQuebras (linhas) {
     if (!grupos.has(chave)) {
       grupos.set(chave, { cnpjEmitente: linha.cnpjEmitente, tipoDocumento: linha.tipoGrupo, serie: linha.serie, numeros: [] })
     }
-    grupos.get(chave).numeros.push(linha.numero)
+    const numeros = grupos.get(chave).numeros
+    const ultimo = linha.numeroFinal ?? linha.numero
+    for (let numero = linha.numero; numero <= ultimo; numero++) numeros.push(numero)
   }
 
   const resultado = []
@@ -273,35 +356,30 @@ function styleHeaderRow (worksheet, headers) {
   worksheet.autoFilter = { from: 'A1', to: `${colLetter(headers.length)}1` }
 }
 
-function addSheetXmls (workbook, linhas) {
+function addSheetXmls (workbook, linhas, totais) {
   const sheet = workbook.addWorksheet('XMLs')
   const headers = [
     'CNPJ Emitente', 'Razão Social Emitente', 'Tipo Documento', 'Modelo', 'Número', 'Série',
-    'Data Emissão', 'Hora Emissão', 'Chave de Acesso', 'Protocolo', 'Status', 'Código Status',
+    'Data Emissão', 'Hora Emissão', 'Data e Hora da Autorização', 'Chave de Acesso', 'Protocolo', 'Status', 'Código Status',
     'Motivo', 'CPF/CNPJ Destinatário', 'Nome Destinatário', 'Valor Total', 'Valor Produtos',
     'Valor ICMS', 'Base ICMS', 'Desconto', 'ICMS Desonerado (vICMSDeson)', 'Frete', 'Tipo Emissão',
     'Ambiente', 'Origem', 'Nome do Arquivo', 'Observações'
   ]
   styleHeaderRow(sheet, headers)
 
-  const moedaCols = new Set([16, 17, 18, 19, 20, 21, 22])
+  const moedaCols = new Set([17, 18, 19, 20, 21, 22, 23])
   // Número e série entram aqui também: uma coluna numérica com célula vazia
   // como texto ('') em vez de célula em branco de verdade cria uma coluna de
   // tipo misto (número + texto), que é causa clássica do Excel se comportar
   // mal — às vezes travando — ao tentar ordenar.
-  const numericCols = new Set([5, 6, 16, 17, 18, 19, 20, 21, 22])
-
-  let totalAutorizados = 0
-  let totalCancelados = 0
-  let somaAutorizados = 0
-  let somaDesonerado = 0
-  let somaGeral = 0
+  const numericCols = new Set([5, 6, ...moedaCols])
 
   linhas.forEach((linha, idx) => {
     const row = sheet.getRow(idx + 2)
     const values = [
       linha.cnpjEmitente, linha.razaoSocialEmitente, linha.tipoDocumento, linha.modelo,
       linha.numero, linha.serie, formatData(linha.dataEmissaoRaw), formatHora(linha.dataEmissaoRaw),
+      linha.dataAutorizacaoRaw ? [formatData(linha.dataAutorizacaoRaw), formatHora(linha.dataAutorizacaoRaw)].filter(Boolean).join(' ') : null,
       linha.chave, linha.protocolo, linha.status, linha.cStat, linha.motivo,
       linha.cpfCnpjDestinatario, linha.nomeDestinatario, linha.valorTotal, linha.valorProdutos,
       linha.valorIcms, linha.baseIcms, linha.desconto, linha.icmsDesonerado, linha.frete,
@@ -321,25 +399,15 @@ function addSheetXmls (workbook, linhas) {
       row.eachCell({ includeEmpty: true }, (cell) => { cell.fill = fill })
     }
 
-    const valor = Number(linha.valorTotal) || 0
-    somaGeral += valor
-    if (kind === 'autorizado') {
-      totalAutorizados++
-      somaAutorizados += valor
-      somaDesonerado += Number(linha.icmsDesonerado) || 0
-    }
-    if (kind === 'cancelado') totalCancelados++
   })
 
   const footerStart = linhas.length + 3
   const footerLabels = [
     ['Quantidade total de documentos', linhas.length],
-    ['Total de documentos autorizados', totalAutorizados],
-    ['Total de documentos cancelados', totalCancelados],
-    ['Soma total dos valores autorizados', somaAutorizados, true],
-    ['Valor total desonerado', somaDesonerado, true],
-    ['Valor final (autorizado − desonerado)', somaAutorizados - somaDesonerado, true],
-    ['Soma total geral', somaGeral, true]
+    ['Documentos com status AUTORIZADA', totais.autorizados],
+    ['Total de documentos cancelados', totais.cancelados],
+    ...metricasDeValores(totais),
+    ['Soma de todos os documentos (inclui canceladas)', totais.geral, true]
   ]
   footerLabels.forEach(([label, value, moeda], i) => {
     const row = sheet.getRow(footerStart + i)
@@ -381,7 +449,7 @@ function addSheetQuebras (workbook, quebras) {
   return sheet
 }
 
-function addSheetResumo (workbook, linhas, quebras) {
+function addSheetResumo (workbook, linhas, quebras, collectionDate, totais) {
   const sheet = workbook.addWorksheet('Resumo')
   styleHeaderRow(sheet, ['Métrica', 'Valor'])
 
@@ -395,9 +463,6 @@ function addSheetResumo (workbook, linhas, quebras) {
   const porCnpj = new Map()
   const porOrigem = new Map()
   const series = new Set()
-  let valorAutorizado = 0
-  let valorDesonerado = 0
-  let valorCancelado = 0
 
   for (const linha of linhas) {
     const statusLabel = linha.status || 'Não informado'
@@ -407,15 +472,6 @@ function addSheetResumo (workbook, linhas, quebras) {
     porOrigem.set(linha.origem || 'Não identificado', (porOrigem.get(linha.origem || 'Não identificado') ?? 0) + 1)
     if (linha.serie !== null) series.add(`${linha.cnpjEmitente}|${linha.serie}`)
 
-    const kind = statusKind(linha.status)
-    const valor = Number(linha.valorTotal) || 0
-    // Desonerado só das autorizadas: é abatido do valor autorizado logo
-    // abaixo, então somar o de nota cancelada distorceria o valor final.
-    if (kind === 'autorizado') {
-      valorAutorizado += valor
-      valorDesonerado += Number(linha.icmsDesonerado) || 0
-    }
-    if (kind === 'cancelado') valorCancelado += valor
   }
 
   const totalQuebras = quebras.reduce((sum, q) => sum + q.quantidadeQuebras, 0)
@@ -431,15 +487,17 @@ function addSheetResumo (workbook, linhas, quebras) {
     row.getCell(2).border = BORDERS
   }
 
+  metric('Critério de coleta', collectionDate === 'authorization'
+    ? 'Os documentos foram coletados pela data de autorização. Para documentos sem essa data, foi usada a data de emissão.'
+    : 'Os documentos foram coletados pela data de emissão.')
+  sheet.getCell('B2').alignment = { wrapText: true, vertical: 'middle' }
+  sheet.getRow(2).height = 36
   metric('Total de XML lidos', linhas.length)
   metric('Total válidos', totalValidos)
   metric('Total duplicados removidos', totalDuplicados)
   metric('Total de séries', series.size)
   metric('Total de quebras encontradas', totalQuebras)
-  metric('Valor total autorizado', valorAutorizado, true)
-  metric('Valor total desonerado', valorDesonerado, true)
-  metric('Valor final (autorizado − desonerado)', valorAutorizado - valorDesonerado, true)
-  metric('Valor total cancelado', valorCancelado, true)
+  for (const valores of metricasDeValores(totais)) metric(...valores)
 
   r++
   const subTitulo = (texto) => {
@@ -476,17 +534,18 @@ function addSheetResumo (workbook, linhas, quebras) {
   return sheet
 }
 
-export async function buildLogWorkbookBuffer (items) {
+export async function buildLogWorkbookBuffer (items, collectionDate) {
   const linhas = (items ?? []).map(buildLinha).sort(compararOrdenacao)
   const quebras = buildQuebras(linhas)
+  const totais = calcularTotais(linhas)
 
   const workbook = new (getExcelJS().Workbook)()
   workbook.creator = 'TOTVS Chef | XML'
   workbook.created = new Date()
 
-  addSheetXmls(workbook, linhas)
+  addSheetXmls(workbook, linhas, totais)
   addSheetQuebras(workbook, quebras)
-  addSheetResumo(workbook, linhas, quebras)
+  addSheetResumo(workbook, linhas, quebras, collectionDate, totais)
 
   return workbook.xlsx.writeBuffer()
 }

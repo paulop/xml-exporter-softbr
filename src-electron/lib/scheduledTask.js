@@ -3,18 +3,16 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { MONTHLY_HOURS } from './monthlyWindow.js'
 
-// Tarefa do Agendador do Windows que abre o app com `--auto` na primeira
-// segunda-feira de cada mês (o app então consulta e valida o mês anterior,
-// e envia sozinho se "Enviar sem revisar" estiver ligado). StartWhenAvailable:
-// se o PC estiver desligado no horário, o Windows abre assim que ele ligar.
+// O Agendador dispara nos horários de fechamento e também no logon.
 export const AUTO_RUN_ARG = '--auto'
 const TASK_NAME = 'SoftBR - Gerador de Arquivos XML - Envio mensal'
-const START_TIME = '08:00:00'
+export const MONTHLY_SCHEDULE_VERSION = 3
 
-function runSchtasks (args) {
+function runWindowsCommand (command, args) {
   return new Promise((resolve, reject) => {
-    execFile('schtasks', args, { windowsHide: true }, (err, stdout, stderr) => {
+    execFile(command, args, { windowsHide: true }, (err, stdout, stderr) => {
       if (err) reject(new Error(String(stderr || stdout || err.message).trim()))
       else resolve(stdout)
     })
@@ -29,40 +27,42 @@ function escapeXml (value) {
     .replace(/"/g, '&quot;')
 }
 
-// O agendamento mensal por dia da semana ("1ª segunda-feira") não existe nos
-// cmdlets do PowerShell, só no XML de tarefa — por isso o /XML no schtasks.
-function taskXml () {
-  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
-    'August', 'September', 'October', 'November', 'December']
-    .map((m) => `<${m} />`).join('')
+// O aplicativo restringe os disparos semanais à primeira segunda e à terça
+// seguinte, inclusive quando a primeira segunda cai no dia 7.
+function taskXml (userSid) {
+  const triggers = MONTHLY_HOURS.map((hour) => `
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T${String(hour).padStart(2, '0')}:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByWeek>
+        <WeeksInterval>1</WeeksInterval>
+        <DaysOfWeek><Monday /><Tuesday /></DaysOfWeek>
+      </ScheduleByWeek>
+    </CalendarTrigger>`).join('')
 
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Abre o TOTVS Chef | XML para o envio mensal dos XMLs à contabilidade.</Description>
   </RegistrationInfo>
-  <Triggers>
-    <CalendarTrigger>
-      <StartBoundary>2026-01-01T${START_TIME}</StartBoundary>
+  <Triggers>${triggers}
+    <LogonTrigger>
       <Enabled>true</Enabled>
-      <ScheduleByMonthDayOfWeek>
-        <Weeks><Week>1</Week></Weeks>
-        <DaysOfWeek><Monday /></DaysOfWeek>
-        <Months>${months}</Months>
-      </ScheduleByMonthDayOfWeek>
-    </CalendarTrigger>
+      <UserId>${userSid}</UserId>
+    </LogonTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
+      <UserId>${userSid}</UserId>
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
   <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <StartWhenAvailable>true</StartWhenAvailable>
+    <StartWhenAvailable>false</StartWhenAvailable>
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <Enabled>true</Enabled>
@@ -78,11 +78,14 @@ function taskXml () {
 }
 
 async function createTask () {
+  const identity = await runWindowsCommand('whoami.exe', ['/user', '/fo', 'csv', '/nh'])
+  const userSid = identity.match(/"\s*,\s*"(S-1-\d+(?:-\d+)+)"\s*$/i)?.[1]
+  if (!userSid) throw new Error('Não foi possível identificar a conta atual do Windows.')
   const xmlPath = path.join(os.tmpdir(), `softbr-xml-task-${process.pid}.xml`)
   // schtasks só aceita o XML de forma confiável em UTF-16 LE com BOM.
-  await fs.writeFile(xmlPath, '﻿' + taskXml(), 'utf16le')
+  await fs.writeFile(xmlPath, '﻿' + taskXml(userSid), 'utf16le')
   try {
-    await runSchtasks(['/Create', '/TN', TASK_NAME, '/XML', xmlPath, '/F'])
+    await runWindowsCommand('schtasks.exe', ['/Create', '/TN', TASK_NAME, '/XML', xmlPath, '/F'])
   } finally {
     await fs.rm(xmlPath, { force: true })
   }
@@ -90,7 +93,7 @@ async function createTask () {
 
 async function deleteTask () {
   try {
-    await runSchtasks(['/Delete', '/TN', TASK_NAME, '/F'])
+    await runWindowsCommand('schtasks.exe', ['/Delete', '/TN', TASK_NAME, '/F'])
   } catch {
     // tarefa não existia — nada a remover
   }
