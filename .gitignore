@@ -6,6 +6,18 @@ node_modules
 # .env files
 .env*
 
+# Dados locais de clientes, exportações fiscais e credenciais de assinatura
+config.json
+last-export.json
+*.xml
+*.xlsx
+*.zip
+*.bak
+*.pfx
+*.p12
+*.pem
+*.key
+
 # Quasar core related directories
 .quasar
 /dist

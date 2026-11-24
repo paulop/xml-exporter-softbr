@@ -241,7 +241,7 @@ export default defineConfig((/* ctx */) => {
         publish: [
           {
             provider: 'github',
-            owner: 'paulop',
+            owner: 'softbr-drive',
             repo: 'xml-exporter-softbr',
             // electron-builder cria a release como rascunho por padrão;
             // "release" publica direto, senão o electron-updater não a enxerga.

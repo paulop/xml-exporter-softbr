@@ -42,7 +42,7 @@ export async function testConnection (connection, password) {
   }
 }
 
-export async function runQuery (connection, password, sqlText, params) {
+export async function runQuery (connection, password, sqlText, params, selectRow) {
   const sql = getMssql()
   const pool = new sql.ConnectionPool(buildConfig(connection, password))
   try {
@@ -50,6 +50,22 @@ export async function runQuery (connection, password, sqlText, params) {
     const request = pool.request()
     request.input('dataInicial', sql.Date, params.dataInicial)
     request.input('dataFinal', sql.Date, params.dataFinal)
+    if (selectRow) {
+      const selected = []
+      let firstResult = true
+      let resultCount = 0
+      let queryError
+      request.stream = true
+      request.on('recordset', () => { firstResult = ++resultCount === 1 })
+      request.on('row', (row) => {
+        if (firstResult && selectRow(row)) selected.push(row)
+      })
+      // Em modo stream o driver emite o erro sem rejeitar a promessa.
+      request.on('error', (error) => { queryError ??= error })
+      await request.query(sqlText)
+      if (queryError) throw queryError
+      return selected
+    }
     const result = await request.query(sqlText)
     return result.recordset
   } finally {

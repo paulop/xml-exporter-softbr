@@ -21,7 +21,7 @@
           icon="fact_check"
           label="Validar / Auditar"
           :loading="running"
-          :disable="running"
+          :disable="running || disabled"
           @click="run"
         />
       </div>
@@ -223,6 +223,10 @@ import { useQueryStore } from '@/stores/query-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { toPlain } from '@/utils/ipc'
 
+defineProps({
+  disabled: Boolean
+})
+
 const $q = useQuasar()
 const queryStore = useQueryStore()
 const settingsStore = useSettingsStore()
@@ -290,7 +294,8 @@ function statusColor (status) {
 
 // Devolve o resultado da validação (null se cancelada ou com erro) — a
 // execução automática mensal usa pra saber o que não deu pra recuperar.
-async function run () {
+async function run (automatic = false) {
+  if (running.value) return null
   running.value = true
   queryStore.validating = true
   queryStore.validated = false
@@ -304,8 +309,12 @@ async function run () {
   })
 
   try {
-    const period = { dataInicial: queryStore.dataInicial, dataFinal: queryStore.dataFinal }
-    const result = await window.api.validation.run(toPlain(queryStore.rows), period, toPlain(queryStore.sourceErrors))
+    const period = {
+      dataInicial: queryStore.dataInicial,
+      dataFinal: queryStore.dataFinal,
+      collectionDate: queryStore.collectionDate
+    }
+    const result = await window.api.validation.run(toPlain(queryStore.rows), period, toPlain(queryStore.sourceErrors), automatic === true)
 
     if (result.cancelled) {
       $q.notify({ type: 'warning', message: 'Validação cancelada.' })
@@ -329,6 +338,7 @@ async function run () {
     }
 
     queryStore.selected = result.finalItems
+    queryStore.inaccessibleFolders = result.inaccessibleFolders ?? []
     queryStore.validated = true
     queryStore.unrecoveredGaps = sequenceRows.value.reduce((sum, r) => sum + r.lacunas.length, 0)
 

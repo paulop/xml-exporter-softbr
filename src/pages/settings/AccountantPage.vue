@@ -66,6 +66,19 @@
             <template #prepend><q-icon name="mail" size="18px" /></template>
           </q-input>
 
+          <q-select
+            v-model="form.collectionDate"
+            filled
+            dense
+            emit-value
+            map-options
+            label="Data usada na coleta"
+            :options="[
+              { label: 'Data de emissão', value: 'emission' },
+              { label: 'Data de autorização', value: 'authorization' }
+            ]"
+          />
+
           <div>
             <q-toggle
               v-model="form.autoOpen"
@@ -75,9 +88,9 @@
               @update:model-value="saveToggles"
             />
             <div class="text-caption text-grey q-ml-lg">
-              Na primeira segunda-feira de cada mês, às 8h, o sistema abre sozinho e já consulta e valida
-              o mês anterior. Se não abrir no dia (computador desligado), abre automaticamente assim que
-              o computador for ligado nos dias seguintes.
+              Na primeira segunda-feira do mês, o sistema consulta e valida o mês anterior.
+              Em caso de falha de acesso, tenta novamente nos horários disponíveis (8h, 11h, 14h, 17h e 20h)
+              até a terça-feira seguinte.
             </div>
           </div>
 
@@ -122,7 +135,7 @@ const settingsStore = useSettingsStore()
 // obrigatórios e, ao salvar, segue pra tela de notas.
 const setup = computed(() => !!route.query.setup)
 
-const form = reactive({ name: '', cnpj: '', whatsapp: '', email: '', autoOpen: false, sendWithoutReview: false })
+const form = reactive({ name: '', cnpj: '', whatsapp: '', email: '', collectionDate: 'emission', autoOpen: false, sendWithoutReview: false })
 const saving = ref(false)
 const lookingUp = ref(false)
 const savingToggles = ref(false)

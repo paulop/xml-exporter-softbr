@@ -1,5 +1,5 @@
 import { store } from '../lib/store.js'
-import { runValidation, findInaccessibleFolders, ValidationCancelledError } from '../lib/notaValidation.js'
+import { runValidation, ValidationCancelledError } from '../lib/notaValidation.js'
 import { validateNfeFolderSequence } from '../lib/nfeCopyFolders.js'
 import { sendProblemsReport } from './export.js'
 
@@ -16,7 +16,7 @@ export function cancel () {
 
 // `sourceErrors`: conexões que falharam na consulta (vêm do renderer), só
 // pra entrar no email de problemas.
-export async function run (rows, period, sourceErrors = []) {
+export async function run (rows, period, sourceErrors = [], automatic = false) {
   cancelRequested = false
   const folders = store.get('searchFolders')
 
@@ -33,12 +33,12 @@ export async function run (rows, period, sourceErrors = []) {
     // Validação das pastas de NF-e avulsas (ver nfeCopyFolders.js) entra no
     // mesmo botão "Validar / Auditar" — não é mais uma ação separada na
     // tela de Configurações, usa o mesmo período já consultado.
-    result.nfeFolderValidation = await validateNfeFolderSequence(store.get('nfeCopyFolders'), period ?? {})
-    result.inaccessibleFolders = await findInaccessibleFolders(folders)
+    result.nfeFolderValidation = await validateNfeFolderSequence(store.get('nfeCopyFolders'), period ?? {}, (rows ?? []).filter((row) => row.nfeAvulsa))
 
     // Com lacunas não recuperadas ou outros problemas, o relatório vai por
     // email na hora. Uma falha aqui não pode derrubar a validação: volta só
     // como aviso.
+    if (automatic && (sourceErrors.length || result.inaccessibleFolders.length)) return result
     try {
       result.problemsEmail = await sendProblemsReport(result, period ?? {}, sourceErrors ?? [], () => {
         mainWindowRef?.webContents.send('validation:progress', {
